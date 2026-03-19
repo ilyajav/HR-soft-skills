@@ -1,0 +1,464 @@
+import {
+  DndContext,
+  PointerSensor,
+  pointerWithin,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
+import { useEffect, useState } from "react";
+import { Alert, Button, Card, Col, Input, Layout, Result, Row, Space, Spin, Typography } from "antd";
+import { useParams } from "react-router-dom";
+import api from "../api";
+
+const STRESS_COUNTDOWN_MS = 15000;
+const STRESS_DANGER_THRESHOLD_MS = 5000;
+
+const COLUMN_IDS = {
+  incoming: "incoming",
+  low: "low",
+  medium: "medium",
+  high: "high",
+};
+
+const COLUMN_ORDER = [COLUMN_IDS.incoming, COLUMN_IDS.low, COLUMN_IDS.medium, COLUMN_IDS.high];
+
+const COLUMN_META = {
+  [COLUMN_IDS.incoming]: {
+    title: "Входящие задачи",
+    description: "Все карточки стартуют здесь и должны быть распределены по критичности.",
+    emptyText: "Все входящие задачи уже распределены.",
+  },
+  [COLUMN_IDS.low]: {
+    title: "Низкая критичность",
+    description: "Задачи с минимальным риском и более мягким сроком реакции.",
+    emptyText: "Перетащите сюда задачи низкой критичности.",
+  },
+  [COLUMN_IDS.medium]: {
+    title: "Средняя критичность",
+    description: "Задачи, которые важны, но не требуют самой резкой реакции.",
+    emptyText: "Перетащите сюда задачи средней критичности.",
+  },
+  [COLUMN_IDS.high]: {
+    title: "Высокая критичность",
+    description: "Наиболее чувствительные задачи с высоким риском ошибки или задержки.",
+    emptyText: "Перетащите сюда задачи высокой критичности.",
+  },
+};
+
+const getCardDragId = (cardId) => `card-${cardId}`;
+const getColumnDropId = (columnId) => `column-${columnId}`;
+
+const formatCountdown = (timeLeftMs) => {
+  const totalSeconds = Math.ceil(timeLeftMs / 1000);
+  const safeSeconds = Math.max(0, totalSeconds);
+  const minutes = String(Math.floor(safeSeconds / 60)).padStart(2, "0");
+  const seconds = String(safeSeconds % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
+};
+
+const createBoardState = (cards = []) => ({
+  [COLUMN_IDS.incoming]: cards,
+  [COLUMN_IDS.low]: [],
+  [COLUMN_IDS.medium]: [],
+  [COLUMN_IDS.high]: [],
+});
+
+const createTelemetryState = (cards = []) =>
+  Object.fromEntries(
+    cards.map((card) => [
+      card.id,
+      {
+        dragCount: 0,
+        firstDragAt: null,
+      },
+    ]),
+  );
+
+const getCardId = (value) => {
+  const stringValue = String(value);
+
+  if (stringValue.startsWith("card-")) {
+    return Number(stringValue.slice(5));
+  }
+
+  return Number(stringValue);
+};
+
+const getTargetColumnId = (target) => {
+  const targetColumnId = target?.data?.current?.columnId;
+  if (targetColumnId && COLUMN_ORDER.includes(targetColumnId)) {
+    return targetColumnId;
+  }
+
+  const targetId = String(target?.id ?? "");
+  if (targetId.startsWith("column-")) {
+    return targetId.slice(7);
+  }
+
+  return null;
+};
+
+const findCardColumnId = (board, cardId) =>
+  COLUMN_ORDER.find((columnId) => board[columnId].some((card) => card.id === cardId)) ?? null;
+
+const moveCardToColumn = (board, cardId, targetColumnId) => {
+  const sourceColumnId = findCardColumnId(board, cardId);
+  if (!sourceColumnId || !targetColumnId || sourceColumnId === targetColumnId) {
+    return board;
+  }
+
+  const movedCard = board[sourceColumnId].find((card) => card.id === cardId);
+  if (!movedCard) {
+    return board;
+  }
+
+  return {
+    ...board,
+    [sourceColumnId]: board[sourceColumnId].filter((card) => card.id !== cardId),
+    [targetColumnId]: [...board[targetColumnId], movedCard],
+  };
+};
+
+function TaskCard({ card, columnId }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: getCardDragId(card.id),
+    data: {
+      cardId: card.id,
+      columnId,
+    },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+      }}
+      className="kanban-card-shell"
+    >
+      <Card
+        className={`kanban-task-card ${isDragging ? "is-dragging" : ""}`}
+        bordered={false}
+        {...attributes}
+        {...listeners}
+      >
+        <div className="kanban-task-card__content">
+          <div className="kanban-task-card__handle">::</div>
+          <Typography.Text strong>{card.text}</Typography.Text>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function KanbanColumn({ columnId, cards }) {
+  const { title, description, emptyText } = COLUMN_META[columnId];
+  const { isOver, setNodeRef } = useDroppable({
+    id: getColumnDropId(columnId),
+    data: {
+      columnId,
+    },
+  });
+
+  return (
+    <div ref={setNodeRef} className={`kanban-column kanban-column--${columnId} ${isOver ? "is-over" : ""}`}>
+      <div className="kanban-column__header">
+        <div>
+          <Typography.Title level={4} style={{ margin: 0 }}>
+            {title}
+          </Typography.Title>
+          <Typography.Text type="secondary">{description}</Typography.Text>
+        </div>
+        <div className="kanban-column__count">{cards.length}</div>
+      </div>
+
+      <div className="kanban-column__body">
+        {cards.length ? (
+          cards.map((card) => <TaskCard key={card.id} card={card} columnId={columnId} />)
+        ) : (
+          <div className="kanban-column__empty">{emptyText}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function Play() {
+  const { token } = useParams();
+  const sensors = useSensors(useSensor(PointerSensor));
+  const [sessionData, setSessionData] = useState(null);
+  const [board, setBoard] = useState(createBoardState);
+  const [telemetry, setTelemetry] = useState({});
+  const [candidateName, setCandidateName] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [stressTimerVisible, setStressTimerVisible] = useState(false);
+  const [stressStartedAt, setStressStartedAt] = useState(null);
+  const [stressTimeLeftMs, setStressTimeLeftMs] = useState(STRESS_COUNTDOWN_MS);
+
+  useEffect(() => {
+    const loadGame = async () => {
+      try {
+        const response = await api.get(`/play/${token}/`);
+        const cards = response.data.cards;
+
+        setSessionData(response.data);
+        setBoard(createBoardState(cards));
+        setTelemetry(createTelemetryState(cards));
+        setStressTimerVisible(false);
+        setStressStartedAt(null);
+        setStressTimeLeftMs(STRESS_COUNTDOWN_MS);
+      } catch {
+        setError("Не удалось загрузить тест.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadGame();
+  }, [token]);
+
+  useEffect(() => {
+    if (!stressTimerVisible || !stressStartedAt || submitted) {
+      return undefined;
+    }
+
+    const tick = () => {
+      const nextTimeLeftMs = Math.max(0, STRESS_COUNTDOWN_MS - (Date.now() - stressStartedAt));
+      setStressTimeLeftMs(nextTimeLeftMs);
+      return nextTimeLeftMs;
+    };
+
+    tick();
+    const intervalId = window.setInterval(() => {
+      const nextTimeLeftMs = tick();
+      if (nextTimeLeftMs === 0) {
+        window.clearInterval(intervalId);
+      }
+    }, 250);
+
+    return () => window.clearInterval(intervalId);
+  }, [stressTimerVisible, stressStartedAt, submitted]);
+
+  const revealStressTimer = () => {
+    if (stressTimerVisible || !sessionData?.calc_sri) {
+      return;
+    }
+
+    setStressTimerVisible(true);
+    setStressStartedAt(Date.now());
+    setStressTimeLeftMs(STRESS_COUNTDOWN_MS);
+  };
+
+  const handleDragStart = ({ active }) => {
+    revealStressTimer();
+
+    const activeCardId = active.data.current?.cardId ?? getCardId(active.id);
+    if (!Number.isFinite(activeCardId)) {
+      return;
+    }
+
+    setTelemetry((current) => {
+      const existing = current[activeCardId] ?? { dragCount: 0, firstDragAt: null };
+      if (existing.firstDragAt) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [activeCardId]: {
+          ...existing,
+          firstDragAt: Date.now(),
+        },
+      };
+    });
+  };
+
+  const handleDragEnd = ({ active, over }) => {
+    if (!over) {
+      return;
+    }
+
+    const activeCardId = active.data.current?.cardId ?? getCardId(active.id);
+    const sourceColumnId = active.data.current?.columnId ?? findCardColumnId(board, activeCardId);
+    const targetColumnId = getTargetColumnId(over);
+
+    if (
+      !Number.isFinite(activeCardId) ||
+      !sourceColumnId ||
+      !targetColumnId ||
+      sourceColumnId === targetColumnId
+    ) {
+      return;
+    }
+
+    setBoard((current) => moveCardToColumn(current, activeCardId, targetColumnId));
+    setTelemetry((current) => {
+      const existing = current[activeCardId] ?? { dragCount: 0, firstDragAt: Date.now() };
+      return {
+        ...current,
+        [activeCardId]: {
+          ...existing,
+          dragCount: existing.dragCount + 1,
+        },
+      };
+    });
+  };
+
+  const handleSave = async () => {
+    setSubmitting(true);
+    setError("");
+
+    try {
+      const finishedAt = Date.now();
+      const logs = COLUMN_ORDER.flatMap((columnId) => board[columnId]).map((card) => {
+        const itemTelemetry = telemetry[card.id] ?? {
+          dragCount: 0,
+          firstDragAt: finishedAt,
+        };
+
+        return {
+          card_id: card.id,
+          time_spent_ms: Math.max(0, finishedAt - (itemTelemetry.firstDragAt ?? finishedAt)),
+          drag_count: itemTelemetry.dragCount,
+        };
+      });
+
+      await api.post(`/play/${token}/submit/`, {
+        candidate_name: candidateName,
+        logs,
+      });
+      setSubmitted(true);
+    } catch {
+      setError("Не удалось сохранить результат. Попробуйте еще раз.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const incomingCards = board[COLUMN_IDS.incoming] ?? [];
+  const canSubmit = incomingCards.length === 0;
+  const shouldShowStressTimer = Boolean(sessionData?.calc_sri);
+  const isStressDanger =
+    shouldShowStressTimer && stressTimerVisible && stressTimeLeftMs <= STRESS_DANGER_THRESHOLD_MS;
+
+  if (loading) {
+    return (
+      <div className="page-section page-section--narrow" style={{ justifyContent: "center" }}>
+        <Card bordered={false} style={{ width: "100%", textAlign: "center" }}>
+          <Space direction="vertical" size="middle">
+            <Spin size="large" />
+            <Typography.Text type="secondary">Загрузка теста...</Typography.Text>
+          </Space>
+        </Card>
+      </div>
+    );
+  }
+
+  if (error && !sessionData) {
+    return (
+      <div className="page-section page-section--narrow" style={{ justifyContent: "center" }}>
+        <Alert type="error" showIcon message={error} style={{ width: "100%" }} />
+      </div>
+    );
+  }
+
+  if (submitted) {
+    return (
+      <div className="page-section page-section--narrow" style={{ justifyContent: "center" }}>
+        <Card bordered={false} style={{ width: "100%" }}>
+          <Result status="success" title="Спасибо!" subTitle="Результат успешно сохранен и отправлен HR." />
+        </Card>
+      </div>
+    );
+  }
+
+  if (sessionData.is_completed) {
+    return (
+      <div className="page-section page-section--narrow" style={{ justifyContent: "center" }}>
+        <Card bordered={false} style={{ width: "100%" }}>
+          <Result status="warning" title="Тест уже завершен" subTitle="Эта ссылка уже была использована." />
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <Layout className="app-shell">
+      {shouldShowStressTimer && stressTimerVisible ? (
+        <div className={`stress-timer ${isStressDanger ? "is-danger" : ""}`}>
+          <span className="stress-timer__label">Дедлайн уже идет</span>
+          <span className="stress-timer__value">{formatCountdown(stressTimeLeftMs)}</span>
+        </div>
+      ) : null}
+
+      <div className="page-section">
+        <Space direction="vertical" size={24} className="play-stack" style={{ width: "100%" }}>
+          <Card bordered={false}>
+            <Typography.Title level={2} style={{ marginTop: 0, marginBottom: 8 }}>
+              {sessionData.title}
+            </Typography.Title>
+            <Typography.Paragraph type="secondary" className="priority-hint">
+              Распределите все карточки из колонки "Входящие задачи" по колонкам низкой, средней и
+              высокой критичности. Кнопка сохранения станет активной только после полной сортировки.
+            </Typography.Paragraph>
+
+            <div style={{ maxWidth: 420 }}>
+              <Typography.Text strong>Имя сотрудника</Typography.Text>
+              <Input
+                size="large"
+                value={candidateName}
+                onChange={(event) => setCandidateName(event.target.value)}
+                placeholder="Необязательно"
+                style={{ marginTop: 8 }}
+              />
+            </div>
+          </Card>
+
+          <Card bordered={false} title="Kanban-доска критичности">
+            <DndContext
+              sensors={sensors}
+              collisionDetection={pointerWithin}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+            >
+              <Row gutter={[16, 16]}>
+                {COLUMN_ORDER.map((columnId) => (
+                  <Col xs={24} md={12} xl={6} key={columnId}>
+                    <KanbanColumn columnId={columnId} cards={board[columnId]} />
+                  </Col>
+                ))}
+              </Row>
+            </DndContext>
+          </Card>
+
+          {error ? <Alert type="error" showIcon message={error} /> : null}
+
+          <div className="play-actions">
+            <Space direction="vertical" align="end" size={8}>
+              {!canSubmit ? (
+                <Typography.Text type="secondary">
+                  Сначала распределите все карточки из колонки "Входящие задачи".
+                </Typography.Text>
+              ) : null}
+              <Button
+                type="primary"
+                size="large"
+                onClick={handleSave}
+                loading={submitting}
+                disabled={!canSubmit}
+              >
+                Сохранить результат
+              </Button>
+            </Space>
+          </div>
+        </Space>
+      </div>
+    </Layout>
+  );
+}
