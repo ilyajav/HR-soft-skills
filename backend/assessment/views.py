@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.db.models import Avg
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
 from rest_framework.authtoken.models import Token
@@ -100,6 +101,72 @@ class HRSessionDetailView(generics.RetrieveAPIView):
     def get_queryset(self):
         return CandidateSession.objects.filter(test_config__hr=self.request.user).select_related(
             "test_config"
+        )
+
+
+class HRStatisticsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @staticmethod
+    def _round_or_none(value, precision=1):
+        return round(value, precision) if value is not None else None
+
+    def get(self, request):
+        completed_sessions_qs = CandidateSession.objects.filter(
+            is_completed=True,
+            test_config__hr=request.user,
+        ).order_by("id")
+        completed_sessions = list(
+            completed_sessions_qs.values(
+                "candidate_name",
+                "final_dsi",
+                "final_sri",
+                "final_tcei",
+            )
+        )
+        averages = completed_sessions_qs.aggregate(
+            average_dsi=Avg("final_dsi"),
+            average_sri=Avg("final_sri"),
+            average_tcei=Avg("final_tcei"),
+        )
+
+        scatter_data = []
+        tcei_distribution = {"high": 0, "medium": 0, "low": 0}
+
+        for session in completed_sessions:
+            final_dsi = session["final_dsi"]
+            final_sri = session["final_sri"]
+            final_tcei = session["final_tcei"]
+
+            if final_dsi is not None and final_sri is not None:
+                scatter_data.append(
+                    {
+                        "candidate": session["candidate_name"] or "Без имени",
+                        "dsi": round(final_dsi, 2),
+                        "sri": round(final_sri, 2),
+                        "tcei": round(final_tcei, 2) if final_tcei is not None else None,
+                    }
+                )
+
+            if final_tcei is None:
+                continue
+
+            if final_tcei >= 75:
+                tcei_distribution["high"] += 1
+            elif final_tcei >= 50:
+                tcei_distribution["medium"] += 1
+            else:
+                tcei_distribution["low"] += 1
+
+        return Response(
+            {
+                "total_sessions": len(completed_sessions),
+                "average_dsi": self._round_or_none(averages["average_dsi"]),
+                "average_sri": self._round_or_none(averages["average_sri"]),
+                "average_tcei": self._round_or_none(averages["average_tcei"]),
+                "scatter_data": scatter_data,
+                "tcei_distribution": tcei_distribution,
+            }
         )
 
 

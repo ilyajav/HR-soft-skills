@@ -5,6 +5,7 @@ from .views import (
     HRRegisterView,
     HRSessionDetailView,
     HRSessionListView,
+    HRStatisticsView,
     HRTestDestroyView,
     HRTestListCreateView,
     PublicPlayView,
@@ -19,6 +20,7 @@ urlpatterns = [
     path("hr/tests/<int:pk>/", HRTestDestroyView.as_view(), name="hr-test-detail"),
     path("hr/sessions/", HRSessionListView.as_view(), name="hr-sessions"),
     path("hr/sessions/<int:pk>/", HRSessionDetailView.as_view(), name="hr-session-detail"),
+    path("hr/statistics/", HRStatisticsView.as_view(), name="hr-statistics"),
     path("play/<uuid:token>/", PublicPlayView.as_view(), name="play-detail"),
     path("play/<uuid:token>/submit/", PublicSubmitView.as_view(), name="play-submit"),
 ]

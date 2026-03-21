@@ -10,8 +10,8 @@ MVP-платформа для оценки soft skills через игровой
 ## Стек
 
 - Бэкенд: Django, Django REST Framework, Token Authentication
-- База данных: PostgreSQL или SQLite для локальной разработки
-- Фронтенд: React 18, Vite, Tailwind CSS, `@dnd-kit/core`, `axios`, `react-router-dom`, Ant Design
+- База данных: PostgreSQL
+- Фронтенд: React 18, Vite, @dnd-kit/core, axios, react-router-dom, Ant Design
 
 ## Структура проекта
 

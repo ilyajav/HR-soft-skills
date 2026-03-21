@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Space, Switch, Typography } from "antd";
 import Dashboard from "./pages/Dashboard";
+import GlobalStats from "./pages/GlobalStats";
 import Login from "./pages/Login";
 import Play from "./pages/Play";
 import Results from "./pages/Results";
@@ -38,6 +39,14 @@ export default function App({ themeMode, onThemeChange }) {
           element={
             <ProtectedRoute>
               <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/statistics"
+          element={
+            <ProtectedRoute>
+              <GlobalStats />
             </ProtectedRoute>
           }
         />

@@ -315,11 +315,11 @@ export default function Dashboard() {
                 <Typography.Title level={2} style={{ margin: "8px 0 0" }}>
                   Создание тестов и просмотр результатов
                 </Typography.Title>
-                <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-                  Таблица тестов занимает всю ширину, а результаты открываются на отдельной странице.
-                </Typography.Paragraph>
               </div>
               <Space wrap>
+                <Button type="primary" onClick={() => navigate("/statistics")}>
+                  Общая статистика
+                </Button>
                 <Button onClick={() => loadSessions()}>Обновить</Button>
                 <Button onClick={logout}>Выйти</Button>
               </Space>
