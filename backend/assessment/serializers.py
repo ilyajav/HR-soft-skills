@@ -3,6 +3,10 @@ from rest_framework import serializers
 from .models import CandidateSession, HRUser, TaskCard, TestConfig
 
 
+def normalize_test_title(value):
+    return " ".join(value.split())
+
+
 class HRRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
     confirm_password = serializers.CharField(write_only=True, min_length=8)
@@ -61,6 +65,28 @@ class TestConfigCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestConfig
         fields = ("id", "title", "calc_dsi", "calc_sri", "calc_tcei", "cards", "session_token")
+
+    def validate_title(self, value):
+        normalized_title = normalize_test_title(value)
+        if not normalized_title:
+            raise serializers.ValidationError(
+                "\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0442\u0435\u0441\u0442\u0430 \u043d\u0435 \u043c\u043e\u0436\u0435\u0442 \u0431\u044b\u0442\u044c \u043f\u0443\u0441\u0442\u044b\u043c."
+            )
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and user.is_authenticated:
+            existing_titles = TestConfig.objects.filter(hr=user).values_list("title", flat=True)
+            normalized_title_folded = normalized_title.casefold()
+            if any(
+                normalize_test_title(existing_title).casefold() == normalized_title_folded
+                for existing_title in existing_titles
+            ):
+                raise serializers.ValidationError(
+                    "\u0422\u0435\u0441\u0442 \u0441 \u0442\u0430\u043a\u0438\u043c \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435\u043c \u0443\u0436\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442."
+                )
+
+        return normalized_title
 
     def validate(self, attrs):
         cards = attrs.get("cards", [])

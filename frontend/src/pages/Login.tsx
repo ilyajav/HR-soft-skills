@@ -1,40 +1,29 @@
 import { useState } from "react";
 import { Alert, Button, Card, Form, Input, Tabs, Typography } from "antd";
 import { Navigate, useNavigate } from "react-router-dom";
-import api from "../api";
+import api, { getApiErrorMessage } from "../api";
+import type { AuthResponse } from "../types";
 
-const LOGIN_TAB = "login";
-const REGISTER_TAB = "register";
+const LOGIN_TAB = "login" as const;
+const REGISTER_TAB = "register" as const;
 
-const getApiErrorMessage = (error, fallbackMessage) => {
-  const data = error.response?.data;
+type AuthTabKey = typeof LOGIN_TAB | typeof REGISTER_TAB;
 
-  if (!data) {
-    return fallbackMessage;
-  }
+interface LoginFormState {
+  username: string;
+  password: string;
+}
 
-  if (typeof data === "string") {
-    return data;
-  }
-
-  if (typeof data.detail === "string") {
-    return data.detail;
-  }
-
-  const firstValue = Object.values(data)[0];
-  if (Array.isArray(firstValue) && firstValue.length) {
-    return firstValue[0];
-  }
-
-  return fallbackMessage;
-};
+interface RegisterFormState extends LoginFormState {
+  confirm_password: string;
+}
 
 export default function Login() {
   const navigate = useNavigate();
-  const existingToken = localStorage.getItem("hr_token");
-  const [activeTab, setActiveTab] = useState(LOGIN_TAB);
-  const [loginForm, setLoginForm] = useState({ username: "", password: "" });
-  const [registerForm, setRegisterForm] = useState({
+  const existingToken = window.localStorage.getItem("hr_token");
+  const [activeTab, setActiveTab] = useState<AuthTabKey>(LOGIN_TAB);
+  const [loginForm, setLoginForm] = useState<LoginFormState>({ username: "", password: "" });
+  const [registerForm, setRegisterForm] = useState<RegisterFormState>({
     username: "",
     password: "",
     confirm_password: "",
@@ -47,9 +36,9 @@ export default function Login() {
     return <Navigate to="/dashboard" replace />;
   }
 
-  const saveAuth = (response) => {
-    localStorage.setItem("hr_token", response.data.token);
-    localStorage.setItem("hr_username", response.data.username);
+  const saveAuth = (auth: AuthResponse) => {
+    window.localStorage.setItem("hr_token", auth.token);
+    window.localStorage.setItem("hr_username", auth.username);
     navigate("/dashboard");
   };
 
@@ -58,8 +47,8 @@ export default function Login() {
     setLoginError("");
 
     try {
-      const response = await api.post("/auth/login/", loginForm);
-      saveAuth(response);
+      const response = await api.post<AuthResponse>("/auth/login/", loginForm);
+      saveAuth(response.data);
     } catch {
       setLoginError("Не удалось войти. Проверьте логин и пароль.");
     } finally {
@@ -72,8 +61,8 @@ export default function Login() {
     setRegisterError("");
 
     try {
-      const response = await api.post("/auth/register/", registerForm);
-      saveAuth(response);
+      const response = await api.post<AuthResponse>("/auth/register/", registerForm);
+      saveAuth(response.data);
     } catch (error) {
       setRegisterError(getApiErrorMessage(error, "Не удалось создать аккаунт HR."));
     } finally {
@@ -90,7 +79,7 @@ export default function Login() {
 
         <Tabs
           activeKey={activeTab}
-          onChange={setActiveTab}
+          onChange={(key) => setActiveTab(key as AuthTabKey)}
           items={[
             {
               key: LOGIN_TAB,

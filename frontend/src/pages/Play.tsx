@@ -7,11 +7,13 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
+import type { DragEndEvent, DragStartEvent, UniqueIdentifier } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { useEffect, useState } from "react";
 import { Alert, Button, Card, Col, Input, Layout, Result, Row, Space, Spin, Typography } from "antd";
 import { useParams } from "react-router-dom";
 import api from "../api";
+import type { PublicSession, PublicTaskCard, SubmitTelemetryResponse, TelemetryLog } from "../types";
 
 const STRESS_COUNTDOWN_MS = 15000;
 const STRESS_DANGER_THRESHOLD_MS = 5000;
@@ -21,11 +23,32 @@ const COLUMN_IDS = {
   low: "low",
   medium: "medium",
   high: "high",
-};
+} as const;
 
-const COLUMN_ORDER = [COLUMN_IDS.incoming, COLUMN_IDS.low, COLUMN_IDS.medium, COLUMN_IDS.high];
+type BoardColumnId = (typeof COLUMN_IDS)[keyof typeof COLUMN_IDS];
 
-const COLUMN_META = {
+interface ColumnMeta {
+  title: string;
+  description: string;
+  emptyText: string;
+}
+
+interface CardTelemetry {
+  dragCount: number;
+  firstDragAt: number | null;
+}
+
+type BoardState = Record<BoardColumnId, PublicTaskCard[]>;
+type TelemetryState = Record<number, CardTelemetry>;
+
+const COLUMN_ORDER: BoardColumnId[] = [
+  COLUMN_IDS.incoming,
+  COLUMN_IDS.low,
+  COLUMN_IDS.medium,
+  COLUMN_IDS.high,
+];
+
+const COLUMN_META: Record<BoardColumnId, ColumnMeta> = {
   [COLUMN_IDS.incoming]: {
     title: "Входящие задачи",
     description: "Все карточки стартуют здесь и должны быть распределены по критичности.",
@@ -48,10 +71,13 @@ const COLUMN_META = {
   },
 };
 
-const getCardDragId = (cardId) => `card-${cardId}`;
-const getColumnDropId = (columnId) => `column-${columnId}`;
+const getCardDragId = (cardId: number) => `card-${cardId}`;
+const getColumnDropId = (columnId: BoardColumnId) => `column-${columnId}`;
 
-const formatCountdown = (timeLeftMs) => {
+const isBoardColumnId = (value: unknown): value is BoardColumnId =>
+  typeof value === "string" && COLUMN_ORDER.includes(value as BoardColumnId);
+
+const formatCountdown = (timeLeftMs: number): string => {
   const totalSeconds = Math.ceil(timeLeftMs / 1000);
   const safeSeconds = Math.max(0, totalSeconds);
   const minutes = String(Math.floor(safeSeconds / 60)).padStart(2, "0");
@@ -59,25 +85,23 @@ const formatCountdown = (timeLeftMs) => {
   return `${minutes}:${seconds}`;
 };
 
-const createBoardState = (cards = []) => ({
+const createBoardState = (cards: PublicTaskCard[] = []): BoardState => ({
   [COLUMN_IDS.incoming]: cards,
   [COLUMN_IDS.low]: [],
   [COLUMN_IDS.medium]: [],
   [COLUMN_IDS.high]: [],
 });
 
-const createTelemetryState = (cards = []) =>
-  Object.fromEntries(
-    cards.map((card) => [
-      card.id,
-      {
-        dragCount: 0,
-        firstDragAt: null,
-      },
-    ]),
-  );
+const createTelemetryState = (cards: PublicTaskCard[] = []): TelemetryState =>
+  cards.reduce<TelemetryState>((accumulator, card) => {
+    accumulator[card.id] = {
+      dragCount: 0,
+      firstDragAt: null,
+    };
+    return accumulator;
+  }, {});
 
-const getCardId = (value) => {
+const getCardId = (value: UniqueIdentifier): number => {
   const stringValue = String(value);
 
   if (stringValue.startsWith("card-")) {
@@ -87,26 +111,31 @@ const getCardId = (value) => {
   return Number(stringValue);
 };
 
-const getTargetColumnId = (target) => {
-  const targetColumnId = target?.data?.current?.columnId;
-  if (targetColumnId && COLUMN_ORDER.includes(targetColumnId)) {
+const getTargetColumnId = (target: DragEndEvent["over"]): BoardColumnId | null => {
+  const targetColumnId = target?.data.current?.columnId;
+  if (isBoardColumnId(targetColumnId)) {
     return targetColumnId;
   }
 
   const targetId = String(target?.id ?? "");
   if (targetId.startsWith("column-")) {
-    return targetId.slice(7);
+    const parsedColumnId = targetId.slice(7);
+    return isBoardColumnId(parsedColumnId) ? parsedColumnId : null;
   }
 
   return null;
 };
 
-const findCardColumnId = (board, cardId) =>
+const findCardColumnId = (board: BoardState, cardId: number): BoardColumnId | null =>
   COLUMN_ORDER.find((columnId) => board[columnId].some((card) => card.id === cardId)) ?? null;
 
-const moveCardToColumn = (board, cardId, targetColumnId) => {
+const moveCardToColumn = (
+  board: BoardState,
+  cardId: number,
+  targetColumnId: BoardColumnId,
+): BoardState => {
   const sourceColumnId = findCardColumnId(board, cardId);
-  if (!sourceColumnId || !targetColumnId || sourceColumnId === targetColumnId) {
+  if (!sourceColumnId || sourceColumnId === targetColumnId) {
     return board;
   }
 
@@ -122,7 +151,12 @@ const moveCardToColumn = (board, cardId, targetColumnId) => {
   };
 };
 
-function TaskCard({ card, columnId }) {
+interface TaskCardProps {
+  card: PublicTaskCard;
+  columnId: BoardColumnId;
+}
+
+function TaskCard({ card, columnId }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: getCardDragId(card.id),
     data: {
@@ -154,7 +188,12 @@ function TaskCard({ card, columnId }) {
   );
 }
 
-function KanbanColumn({ columnId, cards }) {
+interface KanbanColumnProps {
+  columnId: BoardColumnId;
+  cards: PublicTaskCard[];
+}
+
+function KanbanColumn({ columnId, cards }: KanbanColumnProps) {
   const { title, description, emptyText } = COLUMN_META[columnId];
   const { isOver, setNodeRef } = useDroppable({
     id: getColumnDropId(columnId),
@@ -189,22 +228,28 @@ function KanbanColumn({ columnId, cards }) {
 export default function Play() {
   const { token } = useParams();
   const sensors = useSensors(useSensor(PointerSensor));
-  const [sessionData, setSessionData] = useState(null);
-  const [board, setBoard] = useState(createBoardState);
-  const [telemetry, setTelemetry] = useState({});
+  const [sessionData, setSessionData] = useState<PublicSession | null>(null);
+  const [board, setBoard] = useState<BoardState>(() => createBoardState());
+  const [telemetry, setTelemetry] = useState<TelemetryState>({});
   const [candidateName, setCandidateName] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [stressTimerVisible, setStressTimerVisible] = useState(false);
-  const [stressStartedAt, setStressStartedAt] = useState(null);
+  const [stressStartedAt, setStressStartedAt] = useState<number | null>(null);
   const [stressTimeLeftMs, setStressTimeLeftMs] = useState(STRESS_COUNTDOWN_MS);
 
   useEffect(() => {
     const loadGame = async () => {
+      if (!token) {
+        setError("Ссылка на тест некорректна.");
+        setLoading(false);
+        return;
+      }
+
       try {
-        const response = await api.get(`/play/${token}/`);
+        const response = await api.get<PublicSession>(`/play/${token}/`);
         const cards = response.data.cards;
 
         setSessionData(response.data);
@@ -220,7 +265,7 @@ export default function Play() {
       }
     };
 
-    loadGame();
+    void loadGame();
   }, [token]);
 
   useEffect(() => {
@@ -255,10 +300,10 @@ export default function Play() {
     setStressTimeLeftMs(STRESS_COUNTDOWN_MS);
   };
 
-  const handleDragStart = ({ active }) => {
+  const handleDragStart = ({ active }: DragStartEvent) => {
     revealStressTimer();
 
-    const activeCardId = active.data.current?.cardId ?? getCardId(active.id);
+    const activeCardId = Number(active.data.current?.cardId ?? getCardId(active.id));
     if (!Number.isFinite(activeCardId)) {
       return;
     }
@@ -279,13 +324,16 @@ export default function Play() {
     });
   };
 
-  const handleDragEnd = ({ active, over }) => {
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over) {
       return;
     }
 
-    const activeCardId = active.data.current?.cardId ?? getCardId(active.id);
-    const sourceColumnId = active.data.current?.columnId ?? findCardColumnId(board, activeCardId);
+    const activeCardId = Number(active.data.current?.cardId ?? getCardId(active.id));
+    const activeColumnId = active.data.current?.columnId;
+    const sourceColumnId = isBoardColumnId(activeColumnId)
+      ? activeColumnId
+      : findCardColumnId(board, activeCardId);
     const targetColumnId = getTargetColumnId(over);
 
     if (
@@ -311,25 +359,32 @@ export default function Play() {
   };
 
   const handleSave = async () => {
+    if (!token) {
+      setError("Ссылка на тест некорректна.");
+      return;
+    }
+
     setSubmitting(true);
     setError("");
 
     try {
       const finishedAt = Date.now();
-      const logs = COLUMN_ORDER.flatMap((columnId) => board[columnId]).map((card) => {
-        const itemTelemetry = telemetry[card.id] ?? {
-          dragCount: 0,
-          firstDragAt: finishedAt,
-        };
+      const logs: TelemetryLog[] = COLUMN_ORDER.flatMap((columnId) =>
+        board[columnId].map((card) => {
+          const itemTelemetry = telemetry[card.id] ?? {
+            dragCount: 0,
+            firstDragAt: finishedAt,
+          };
 
-        return {
-          card_id: card.id,
-          time_spent_ms: Math.max(0, finishedAt - (itemTelemetry.firstDragAt ?? finishedAt)),
-          drag_count: itemTelemetry.dragCount,
-        };
-      });
+          return {
+            card_id: card.id,
+            time_spent_ms: Math.max(0, finishedAt - (itemTelemetry.firstDragAt ?? finishedAt)),
+            drag_count: itemTelemetry.dragCount,
+          };
+        }),
+      );
 
-      await api.post(`/play/${token}/submit/`, {
+      await api.post<SubmitTelemetryResponse>(`/play/${token}/submit/`, {
         candidate_name: candidateName,
         logs,
       });
@@ -372,17 +427,29 @@ export default function Play() {
     return (
       <div className="page-section page-section--narrow" style={{ justifyContent: "center" }}>
         <Card bordered={false} style={{ width: "100%" }}>
-          <Result status="success" title="Спасибо!" subTitle="Результат успешно сохранен и отправлен HR." />
+          <Result
+            status="success"
+            title="Спасибо!"
+            subTitle="Результат успешно сохранен и отправлен HR."
+          />
         </Card>
       </div>
     );
+  }
+
+  if (!sessionData) {
+    return null;
   }
 
   if (sessionData.is_completed) {
     return (
       <div className="page-section page-section--narrow" style={{ justifyContent: "center" }}>
         <Card bordered={false} style={{ width: "100%" }}>
-          <Result status="warning" title="Тест уже завершен" subTitle="Эта ссылка уже была использована." />
+          <Result
+            status="warning"
+            title="Тест уже завершен"
+            subTitle="Эта ссылка уже была использована."
+          />
         </Card>
       </div>
     );
@@ -405,7 +472,8 @@ export default function Play() {
             </Typography.Title>
             <Typography.Paragraph type="secondary" className="priority-hint">
               Распределите все карточки из колонки "Входящие задачи" по колонкам низкой, средней и
-              высокой критичности. Кнопка сохранения станет активной только после полной сортировки.
+              высокой критичности. Кнопка сохранения станет активной только после полной
+              сортировки.
             </Typography.Paragraph>
 
             <div style={{ maxWidth: 420 }}>
@@ -449,7 +517,7 @@ export default function Play() {
               <Button
                 type="primary"
                 size="large"
-                onClick={handleSave}
+                onClick={() => void handleSave()}
                 loading={submitting}
                 disabled={!canSubmit}
               >

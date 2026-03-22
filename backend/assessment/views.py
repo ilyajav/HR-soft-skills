@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import Avg
+from django.db.models import Avg, F
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
 from rest_framework.authtoken.models import Token
@@ -122,6 +122,7 @@ class HRStatisticsView(APIView):
                 "final_dsi",
                 "final_sri",
                 "final_tcei",
+                test_title=F("test_config__title"),
             )
         )
         averages = completed_sessions_qs.aggregate(
@@ -131,12 +132,24 @@ class HRStatisticsView(APIView):
         )
 
         scatter_data = []
+        session_breakdown = []
         tcei_distribution = {"high": 0, "medium": 0, "low": 0}
 
         for session in completed_sessions:
             final_dsi = session["final_dsi"]
             final_sri = session["final_sri"]
             final_tcei = session["final_tcei"]
+            candidate_name = session["candidate_name"] or ""
+
+            session_breakdown.append(
+                {
+                    "test_title": session["test_title"],
+                    "candidate_name": candidate_name,
+                    "final_dsi": round(final_dsi, 2) if final_dsi is not None else None,
+                    "final_sri": round(final_sri, 2) if final_sri is not None else None,
+                    "final_tcei": round(final_tcei, 2) if final_tcei is not None else None,
+                }
+            )
 
             if final_dsi is not None and final_sri is not None:
                 scatter_data.append(
@@ -164,6 +177,7 @@ class HRStatisticsView(APIView):
                 "average_dsi": self._round_or_none(averages["average_dsi"]),
                 "average_sri": self._round_or_none(averages["average_sri"]),
                 "average_tcei": self._round_or_none(averages["average_tcei"]),
+                "completed_sessions": session_breakdown,
                 "scatter_data": scatter_data,
                 "tcei_distribution": tcei_distribution,
             }

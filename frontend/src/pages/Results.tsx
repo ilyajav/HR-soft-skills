@@ -2,52 +2,50 @@ import { Column } from "@ant-design/charts";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Card, Empty, Layout, Space, Spin, Statistic, Tag, Typography } from "antd";
 import { useNavigate, useParams } from "react-router-dom";
-import api from "../api";
+import api, { getApiErrorMessage } from "../api";
+import type { CandidateSession } from "../types";
 
 const METRIC_LABELS = {
   DSI: "Индекс скорости принятия решений",
   SRI: "Индекс стрессоустойчивости",
   TCEI: "Итоговый индекс эффективности",
-};
+} as const;
 
-const METRIC_META = {
+type MetricCode = keyof typeof METRIC_LABELS;
+type SessionMetricField = "final_dsi" | "final_sri" | "final_tcei";
+
+interface ResultChartDatum {
+  metric: string;
+  score: number;
+  color: string;
+}
+
+const METRIC_META: Record<MetricCode, { key: SessionMetricField; color: string }> = {
   DSI: { key: "final_dsi", color: "#1768ac" },
   SRI: { key: "final_sri", color: "#2f855a" },
   TCEI: { key: "final_tcei", color: "#b7791f" },
 };
 
-const getApiErrorMessage = (error, fallbackMessage) => {
-  const data = error.response?.data;
-
-  if (!data) {
-    return fallbackMessage;
-  }
-
-  if (typeof data === "string") {
-    return data;
-  }
-
-  if (typeof data.detail === "string") {
-    return data.detail;
-  }
-
-  return fallbackMessage;
-};
-
 export default function Results() {
   const navigate = useNavigate();
   const { sessionId } = useParams();
-  const [session, setSession] = useState(null);
+  const [session, setSession] = useState<CandidateSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     const loadSession = async () => {
+      if (!sessionId) {
+        setError("Некорректный идентификатор результата.");
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError("");
 
       try {
-        const response = await api.get(`/hr/sessions/${sessionId}/`);
+        const response = await api.get<CandidateSession>(`/hr/sessions/${sessionId}/`);
         setSession(response.data);
       } catch (loadError) {
         setError(getApiErrorMessage(loadError, "Не удалось загрузить результат."));
@@ -56,34 +54,47 @@ export default function Results() {
       }
     };
 
-    loadSession();
+    void loadSession();
   }, [sessionId]);
 
-  const selectedMetricTags = session
-    ? [
-        session.calc_dsi ? METRIC_LABELS.DSI : null,
-        session.calc_sri ? METRIC_LABELS.SRI : null,
-        session.calc_tcei ? METRIC_LABELS.TCEI : null,
-      ].filter(Boolean)
-    : [];
-
-  const resultChartData = useMemo(() => {
+  const selectedMetricTags = useMemo(() => {
     if (!session) {
       return [];
     }
 
-    return Object.entries(METRIC_META)
-      .map(([metric, meta]) => {
+    const metrics: string[] = [];
+    if (session.calc_dsi) {
+      metrics.push(METRIC_LABELS.DSI);
+    }
+    if (session.calc_sri) {
+      metrics.push(METRIC_LABELS.SRI);
+    }
+    if (session.calc_tcei) {
+      metrics.push(METRIC_LABELS.TCEI);
+    }
+
+    return metrics;
+  }, [session]);
+
+  const resultChartData = useMemo<ResultChartDatum[]>(() => {
+    if (!session) {
+      return [];
+    }
+
+    return (Object.entries(METRIC_META) as Array<[MetricCode, (typeof METRIC_META)[MetricCode]]>).reduce<
+      ResultChartDatum[]
+    >((accumulator, [metric, meta]) => {
         const score = session[meta.key];
-        return typeof score === "number"
-          ? {
-              metric: METRIC_LABELS[metric],
-              score: Number(score.toFixed(2)),
-              color: meta.color,
-            }
-          : null;
-      })
-      .filter(Boolean);
+        if (typeof score === "number") {
+          accumulator.push({
+            metric: METRIC_LABELS[metric],
+            score: Number(score.toFixed(2)),
+            color: meta.color,
+          });
+        }
+
+        return accumulator;
+      }, []);
   }, [session]);
 
   const chartConfig = {
@@ -157,7 +168,11 @@ export default function Results() {
             {selectedMetricTags.map((metric) => (
               <Tag key={metric}>{metric}</Tag>
             ))}
-            {!session.is_completed ? <Tag color="processing">Открыт</Tag> : <Tag color="success">Завершен</Tag>}
+            {!session.is_completed ? (
+              <Tag color="processing">Открыт</Tag>
+            ) : (
+              <Tag color="success">Завершен</Tag>
+            )}
           </Space>
 
           <div
