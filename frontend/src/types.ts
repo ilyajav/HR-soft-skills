@@ -49,6 +49,24 @@ export interface CandidateSession {
   final_tcei: number | null;
 }
 
+export interface CandidateSessionCriticalityResult {
+  card_id: number;
+  card_text: string;
+  expected_criticality_level: number;
+  expected_criticality_label: string;
+  assigned_criticality_level: number | null;
+  assigned_criticality_label: string | null;
+  is_correct: boolean | null;
+}
+
+export interface CandidateSessionDetail extends CandidateSession {
+  criticality_total_count: number;
+  criticality_correct_count: number;
+  criticality_incorrect_count: number;
+  criticality_missing_count: number;
+  criticality_results: CandidateSessionCriticalityResult[];
+}
+
 export interface PublicTaskCard {
   id: number;
   text: string;
@@ -67,6 +85,7 @@ export interface TelemetryLog {
   card_id: number;
   time_spent_ms: number;
   drag_count: number;
+  assigned_criticality_level: number;
   final_rank?: number;
 }
 

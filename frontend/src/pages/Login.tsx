@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Alert, Button, Card, Form, Input, Tabs, Typography } from "antd";
 import { Navigate, useNavigate } from "react-router-dom";
 import api, { getApiErrorMessage } from "../api";
+import { getHrCabinetLabel } from "../hrAccount";
 import type { AuthResponse } from "../types";
 
 const LOGIN_TAB = "login" as const;
@@ -21,6 +22,7 @@ interface RegisterFormState extends LoginFormState {
 export default function Login() {
   const navigate = useNavigate();
   const existingToken = window.localStorage.getItem("hr_token");
+  const hrCabinetLabel = getHrCabinetLabel();
   const [activeTab, setActiveTab] = useState<AuthTabKey>(LOGIN_TAB);
   const [loginForm, setLoginForm] = useState<LoginFormState>({ username: "", password: "" });
   const [registerForm, setRegisterForm] = useState<RegisterFormState>({
@@ -74,7 +76,7 @@ export default function Login() {
     <div className="page-section page-section--narrow">
       <Card className="login-panel" bordered={false}>
         <Typography.Title level={2} style={{ marginTop: 0, marginBottom: 8 }}>
-          Кабинет HR
+          {hrCabinetLabel}
         </Typography.Title>
 
         <Tabs

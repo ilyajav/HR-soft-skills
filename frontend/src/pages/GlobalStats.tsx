@@ -16,6 +16,7 @@ import {
 } from "antd";
 import { useNavigate } from "react-router-dom";
 import api, { getApiErrorMessage } from "../api";
+import { getHrCabinetLabel } from "../hrAccount";
 import type { StatisticsCompletedSession, StatisticsResponse } from "../types";
 
 type StatisticsMetricKey = "average_dsi" | "average_sri" | "average_tcei";
@@ -33,9 +34,12 @@ interface MetricChartDefinition {
 
 interface PieChartDatum {
   test_title: string;
-  candidate_name: string;
   value: number;
+  total_value: number;
+  sessions_count: number;
 }
+
+const TOP_TESTS_LIMIT = 10;
 
 const PIE_COLOR_RANGE = [
   "#1677ff",
@@ -48,6 +52,7 @@ const PIE_COLOR_RANGE = [
   "#2f54eb",
   "#a0d911",
   "#f5222d",
+  "#8c8c8c",
 ];
 
 const METRIC_CHARTS: MetricChartDefinition[] = [
@@ -58,7 +63,7 @@ const METRIC_CHARTS: MetricChartDefinition[] = [
     shortTitle: "DSI",
     description: "Средняя скорость принятия решений по завершенным результатам.",
     pieDescription:
-      "Круговой график показывает вклад завершенных тестов в DSI. Цвет сектора соответствует тесту.",
+      "Круговой график показывает топ-10 тестов по суммарному вкладу в DSI.",
     color: "#1677ff",
   },
   {
@@ -68,7 +73,7 @@ const METRIC_CHARTS: MetricChartDefinition[] = [
     shortTitle: "SRI",
     description: "Средняя стрессоустойчивость по завершенным результатам.",
     pieDescription:
-      "Круговой график показывает вклад завершенных тестов в SRI. Цвет сектора соответствует тесту.",
+      "Круговой график показывает топ-10 тестов по суммарному вкладу в SRI.",
     color: "#52c41a",
   },
   {
@@ -78,12 +83,51 @@ const METRIC_CHARTS: MetricChartDefinition[] = [
     shortTitle: "TCEI",
     description: "Средняя итоговая эффективность по завершенным результатам.",
     pieDescription:
-      "Круговой график показывает вклад завершенных тестов в TCEI. Легенда отображает названия тестов.",
+      "Круговой график показывает топ-10 тестов по суммарному вкладу в TCEI.",
     color: "#faad14",
   },
 ];
 
 const hasMetricValue = (value: number | null | undefined): value is number => typeof value === "number";
+
+const createTopTestContributionData = (
+  sessions: StatisticsCompletedSession[],
+  sessionKey: SessionMetricKey,
+): PieChartDatum[] => {
+  const groupedByTest = new Map<string, { totalValue: number; sessionsCount: number }>();
+
+  for (const session of sessions) {
+    const metricValue = session[sessionKey];
+    if (!hasMetricValue(metricValue)) {
+      continue;
+    }
+
+    const current = groupedByTest.get(session.test_title) ?? { totalValue: 0, sessionsCount: 0 };
+    current.totalValue += metricValue;
+    current.sessionsCount += 1;
+    groupedByTest.set(session.test_title, current);
+  }
+
+  const sortedTests = Array.from(groupedByTest.entries())
+    .map(([testTitle, stats]) => ({
+      test_title: testTitle,
+      total_value: stats.totalValue,
+      sessions_count: stats.sessionsCount,
+    }))
+    .sort((left, right) => right.total_value - left.total_value)
+    .slice(0, TOP_TESTS_LIMIT);
+
+  const totalValue = sortedTests.reduce((sum, test) => sum + test.total_value, 0);
+  if (!totalValue) {
+    return [];
+  }
+
+  return sortedTests.map((test) => ({
+    ...test,
+    total_value: Number(test.total_value.toFixed(2)),
+    value: Number(((test.total_value / totalValue) * 100).toFixed(2)),
+  }));
+};
 
 const createMetricConfig = (
   title: string,
@@ -134,7 +178,6 @@ const createMetricConfig = (
 
 const createPieConfig = (
   data: PieChartDatum[],
-  legendDomain: string[],
   chartTheme: Record<string, unknown>,
 ) => ({
   data,
@@ -147,7 +190,7 @@ const createPieConfig = (
   label: false,
   scale: {
     color: {
-      domain: legendDomain,
+      domain: data.map((item) => item.test_title),
       range: PIE_COLOR_RANGE,
     },
   },
@@ -159,8 +202,16 @@ const createPieConfig = (
   tooltip: {
     items: [
       (datum: PieChartDatum) => ({
-        name: "Значение",
+        name: "Доля в топ-10",
         value: `${datum.value}%`,
+      }),
+      (datum: PieChartDatum) => ({
+        name: "Сумма значений",
+        value: datum.total_value.toFixed(2),
+      }),
+      (datum: PieChartDatum) => ({
+        name: "Завершенные сессии",
+        value: String(datum.sessions_count),
       }),
     ],
   },
@@ -168,6 +219,7 @@ const createPieConfig = (
 
 export default function GlobalStats() {
   const navigate = useNavigate();
+  const hrCabinetLabel = getHrCabinetLabel();
   const { token } = antdTheme.useToken();
   const [stats, setStats] = useState<StatisticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -190,11 +242,6 @@ export default function GlobalStats() {
   useEffect(() => {
     void loadStatistics();
   }, []);
-
-  const legendDomain = useMemo(
-    () => stats?.completed_sessions.map((session) => session.test_title) ?? [],
-    [stats],
-  );
 
   const chartTheme = useMemo(
     () => ({
@@ -264,20 +311,15 @@ export default function GlobalStats() {
     () =>
       METRIC_CHARTS.map((metric) => {
         const value = stats?.[metric.key] ?? null;
-        const pieData =
-          stats?.completed_sessions
-            .filter((session) => hasMetricValue(session[metric.sessionKey]))
-            .map((session: StatisticsCompletedSession) => ({
-              test_title: session.test_title,
-              candidate_name: session.candidate_name || "Аноним",
-              value: Number((session[metric.sessionKey] ?? 0).toFixed(2)),
-            })) ?? [];
+        const pieData = stats
+          ? createTopTestContributionData(stats.completed_sessions, metric.sessionKey)
+          : [];
 
         return {
           ...metric,
           value,
           pieData,
-          pieConfig: createPieConfig(pieData, legendDomain, chartTheme),
+          pieConfig: createPieConfig(pieData, chartTheme),
           columnConfig: createMetricConfig(
             metric.shortTitle,
             value,
@@ -287,7 +329,7 @@ export default function GlobalStats() {
           ),
         };
       }),
-    [chartTheme, legendDomain, stats, token.colorText],
+    [chartTheme, stats, token.colorText],
   );
 
   const logout = () => {
@@ -312,7 +354,7 @@ export default function GlobalStats() {
               }}
             >
               <div>
-                <Typography.Text type="secondary">Кабинет HR</Typography.Text>
+                <Typography.Text type="secondary">{hrCabinetLabel}</Typography.Text>
                 <Typography.Title level={2} style={{ margin: "8px 0 0" }}>
                   Общая статистика по сотрудникам
                 </Typography.Title>
@@ -385,7 +427,7 @@ export default function GlobalStats() {
               <Row gutter={[16, 16]}>
                 {metricVisuals.map((metric) => (
                   <Col key={`${metric.key}-pie`} xs={24} lg={8}>
-                    <Card bordered={false} title={`Распределение ${metric.shortTitle} по тестам`}>
+                    <Card bordered={false} title={`Распределение ${metric.shortTitle} по тестам: топ-10`}>
                       <Typography.Paragraph type="secondary" style={{ minHeight: 66 }}>
                         {metric.pieDescription}
                       </Typography.Paragraph>

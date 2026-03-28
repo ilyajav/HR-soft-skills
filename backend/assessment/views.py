@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 
 from .models import CandidateSession, TaskCard, TestConfig
 from .serializers import (
+    CandidateSessionDetailSerializer,
     CandidateSessionDashboardSerializer,
     HRRegistrationSerializer,
     PublicPlaySerializer,
@@ -96,11 +97,13 @@ class HRSessionListView(generics.ListAPIView):
 
 class HRSessionDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = CandidateSessionDashboardSerializer
+    serializer_class = CandidateSessionDetailSerializer
 
     def get_queryset(self):
-        return CandidateSession.objects.filter(test_config__hr=self.request.user).select_related(
-            "test_config"
+        return (
+            CandidateSession.objects.filter(test_config__hr=self.request.user)
+            .select_related("test_config")
+            .prefetch_related("test_config__cards")
         )
 
 

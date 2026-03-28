@@ -20,6 +20,7 @@ import {
 import type { TableProps } from "antd";
 import { useNavigate } from "react-router-dom";
 import api, { getApiErrorMessage } from "../api";
+import { getHrCabinetLabel } from "../hrAccount";
 import type {
   AssessmentCardDraft,
   AssessmentFormState,
@@ -89,6 +90,7 @@ const getFieldErrorMessage = (error: unknown, fieldName: string): string | null 
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const hrCabinetLabel = getHrCabinetLabel();
   const [sessions, setSessions] = useState<CandidateSession[]>([]);
   const [createdLink, setCreatedLink] = useState("");
   const [form, setForm] = useState<AssessmentFormState>(createEmptyForm);
@@ -370,7 +372,7 @@ export default function Dashboard() {
               }}
             >
               <div>
-                <Typography.Text type="secondary">Кабинет HR</Typography.Text>
+                <Typography.Text type="secondary">{hrCabinetLabel}</Typography.Text>
                 <Typography.Title level={2} style={{ margin: "8px 0 0" }}>
                   Создание тестов и просмотр результатов
                 </Typography.Title>

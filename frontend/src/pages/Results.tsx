@@ -1,9 +1,10 @@
 import { Column } from "@ant-design/charts";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Card, Empty, Layout, Space, Spin, Statistic, Tag, Typography } from "antd";
+import { Alert, Button, Card, Empty, Layout, Space, Spin, Statistic, Table, Tag, Typography } from "antd";
+import type { TableProps } from "antd";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { getApiErrorMessage } from "../api";
-import type { CandidateSession } from "../types";
+import type { CandidateSessionCriticalityResult, CandidateSessionDetail } from "../types";
 
 const METRIC_LABELS = {
   DSI: "Индекс скорости принятия решений",
@@ -26,10 +27,60 @@ const METRIC_META: Record<MetricCode, { key: SessionMetricField; color: string }
   TCEI: { key: "final_tcei", color: "#b7791f" },
 };
 
+const CRITICALITY_TAG_COLORS: Record<number, string> = {
+  1: "blue",
+  2: "gold",
+  3: "red",
+};
+
+const criticalityColumns: TableProps<CandidateSessionCriticalityResult>["columns"] = [
+  {
+    title: "Карточка",
+    dataIndex: "card_text",
+    key: "card_text",
+  },
+  {
+    title: "Правильная критичность",
+    key: "expected_criticality",
+    render: (_: unknown, record) => (
+      <Tag color={CRITICALITY_TAG_COLORS[record.expected_criticality_level]}>
+        {record.expected_criticality_label}
+      </Tag>
+    ),
+  },
+  {
+    title: "Выбрал кандидат",
+    key: "assigned_criticality",
+    render: (_: unknown, record) =>
+      record.assigned_criticality_level ? (
+        <Tag color={CRITICALITY_TAG_COLORS[record.assigned_criticality_level]}>
+          {record.assigned_criticality_label}
+        </Tag>
+      ) : (
+        <Typography.Text type="secondary">Нет данных</Typography.Text>
+      ),
+  },
+  {
+    title: "Статус",
+    key: "status",
+    render: (_: unknown, record) => {
+      if (record.is_correct === true) {
+        return <Tag color="success">Верно</Tag>;
+      }
+
+      if (record.is_correct === false) {
+        return <Tag color="error">Неверно</Tag>;
+      }
+
+      return <Tag>Нет данных</Tag>;
+    },
+  },
+];
+
 export default function Results() {
   const navigate = useNavigate();
   const { sessionId } = useParams();
-  const [session, setSession] = useState<CandidateSession | null>(null);
+  const [session, setSession] = useState<CandidateSessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -45,7 +96,7 @@ export default function Results() {
       setError("");
 
       try {
-        const response = await api.get<CandidateSession>(`/hr/sessions/${sessionId}/`);
+        const response = await api.get<CandidateSessionDetail>(`/hr/sessions/${sessionId}/`);
         setSession(response.data);
       } catch (loadError) {
         setError(getApiErrorMessage(loadError, "Не удалось загрузить результат."));
@@ -105,6 +156,11 @@ export default function Results() {
     height: 320,
     legend: false,
   };
+
+  const criticalityResults = session?.criticality_results ?? [];
+  const hasCriticalityData =
+    criticalityResults.length > 0 &&
+    (session?.criticality_missing_count ?? 0) < (session?.criticality_total_count ?? 0);
 
   if (loading) {
     return (
@@ -207,6 +263,53 @@ export default function Results() {
               />
             </Card>
           </div>
+
+          <Card bordered={false} title="Распределение по критичности">
+            <Typography.Paragraph type="secondary">
+              Здесь видно, в какие таблицы критичности кандидат разложил карточки и где его выбор
+              совпал с правильным ответом.
+            </Typography.Paragraph>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: 16,
+                marginBottom: 24,
+              }}
+            >
+              <Card bordered={false}>
+                <Statistic title="Распределено верно" value={session.criticality_correct_count} />
+              </Card>
+              <Card bordered={false}>
+                <Statistic title="Ошибок в распределении" value={session.criticality_incorrect_count} />
+              </Card>
+              <Card bordered={false}>
+                <Statistic title="Всего карточек" value={session.criticality_total_count} />
+              </Card>
+            </div>
+
+            {session.criticality_missing_count ? (
+              <Alert
+                style={{ marginBottom: 16 }}
+                type="info"
+                showIcon
+                message={`Для ${session.criticality_missing_count} карточек нет данных о выборе кандидата.`}
+              />
+            ) : null}
+
+            {hasCriticalityData ? (
+              <Table
+                rowKey="card_id"
+                dataSource={criticalityResults}
+                columns={criticalityColumns}
+                pagination={false}
+                scroll={{ x: 900 }}
+              />
+            ) : (
+              <Empty description="Для этой сессии пока нет данных по распределению карточек." />
+            )}
+          </Card>
 
           <Card bordered={false} title="График результата">
             {session.is_completed && resultChartData.length ? (

@@ -2,9 +2,67 @@ from rest_framework import serializers
 
 from .models import CandidateSession, HRUser, TaskCard, TestConfig
 
+CRITICALITY_LEVEL_LABELS = {
+    TaskCard.CriticalityLevel.LOW: "Низкая",
+    TaskCard.CriticalityLevel.MEDIUM: "Средняя",
+    TaskCard.CriticalityLevel.HIGH: "Высокая",
+}
+
 
 def normalize_test_title(value):
     return " ".join(value.split())
+
+
+def build_criticality_results(session):
+    telemetry_logs = session.telemetry_logs or []
+    assigned_levels_by_card_id = {}
+
+    for log in telemetry_logs:
+        card_id = log.get("card_id")
+        assigned_level = log.get("assigned_criticality_level")
+        if not isinstance(card_id, int):
+            continue
+
+        if assigned_level in CRITICALITY_LEVEL_LABELS:
+            assigned_levels_by_card_id[card_id] = assigned_level
+        else:
+            assigned_levels_by_card_id[card_id] = None
+
+    results = []
+    correct_count = 0
+    incorrect_count = 0
+    missing_count = 0
+
+    for card in session.test_config.cards.all():
+        assigned_level = assigned_levels_by_card_id.get(card.id)
+        is_correct = assigned_level == card.criticality_level if assigned_level is not None else None
+
+        if is_correct is True:
+            correct_count += 1
+        elif is_correct is False:
+            incorrect_count += 1
+        else:
+            missing_count += 1
+
+        results.append(
+            {
+                "card_id": card.id,
+                "card_text": card.text,
+                "expected_criticality_level": card.criticality_level,
+                "expected_criticality_label": CRITICALITY_LEVEL_LABELS[card.criticality_level],
+                "assigned_criticality_level": assigned_level,
+                "assigned_criticality_label": CRITICALITY_LEVEL_LABELS.get(assigned_level),
+                "is_correct": is_correct,
+            }
+        )
+
+    return {
+        "total_count": len(results),
+        "correct_count": correct_count,
+        "incorrect_count": incorrect_count,
+        "missing_count": missing_count,
+        "results": results,
+    }
 
 
 class HRRegistrationSerializer(serializers.ModelSerializer):
@@ -153,6 +211,43 @@ class CandidateSessionDashboardSerializer(serializers.ModelSerializer):
         )
 
 
+class CandidateSessionDetailSerializer(CandidateSessionDashboardSerializer):
+    criticality_total_count = serializers.SerializerMethodField()
+    criticality_correct_count = serializers.SerializerMethodField()
+    criticality_incorrect_count = serializers.SerializerMethodField()
+    criticality_missing_count = serializers.SerializerMethodField()
+    criticality_results = serializers.SerializerMethodField()
+
+    def _get_criticality_summary(self, obj):
+        if not hasattr(obj, "_criticality_summary"):
+            obj._criticality_summary = build_criticality_results(obj)
+        return obj._criticality_summary
+
+    def get_criticality_total_count(self, obj):
+        return self._get_criticality_summary(obj)["total_count"]
+
+    def get_criticality_correct_count(self, obj):
+        return self._get_criticality_summary(obj)["correct_count"]
+
+    def get_criticality_incorrect_count(self, obj):
+        return self._get_criticality_summary(obj)["incorrect_count"]
+
+    def get_criticality_missing_count(self, obj):
+        return self._get_criticality_summary(obj)["missing_count"]
+
+    def get_criticality_results(self, obj):
+        return self._get_criticality_summary(obj)["results"]
+
+    class Meta(CandidateSessionDashboardSerializer.Meta):
+        fields = CandidateSessionDashboardSerializer.Meta.fields + (
+            "criticality_total_count",
+            "criticality_correct_count",
+            "criticality_incorrect_count",
+            "criticality_missing_count",
+            "criticality_results",
+        )
+
+
 class PublicPlaySerializer(serializers.ModelSerializer):
     cards = TaskCardPublicSerializer(many=True, source="test_config.cards", read_only=True)
     title = serializers.CharField(source="test_config.title", read_only=True)
@@ -167,6 +262,10 @@ class TelemetryLogInputSerializer(serializers.Serializer):
     card_id = serializers.IntegerField()
     time_spent_ms = serializers.IntegerField(min_value=0)
     drag_count = serializers.IntegerField(min_value=0)
+    assigned_criticality_level = serializers.IntegerField(
+        min_value=TaskCard.CriticalityLevel.LOW,
+        max_value=TaskCard.CriticalityLevel.HIGH,
+    )
     final_rank = serializers.IntegerField(min_value=1, required=False)
 
 

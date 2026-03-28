@@ -40,6 +40,7 @@ interface CardTelemetry {
 
 type BoardState = Record<BoardColumnId, PublicTaskCard[]>;
 type TelemetryState = Record<number, CardTelemetry>;
+type AnswerColumnId = Exclude<BoardColumnId, typeof COLUMN_IDS.incoming>;
 
 const COLUMN_ORDER: BoardColumnId[] = [
   COLUMN_IDS.incoming,
@@ -47,6 +48,18 @@ const COLUMN_ORDER: BoardColumnId[] = [
   COLUMN_IDS.medium,
   COLUMN_IDS.high,
 ];
+
+const ANSWER_COLUMN_ORDER: AnswerColumnId[] = [
+  COLUMN_IDS.low,
+  COLUMN_IDS.medium,
+  COLUMN_IDS.high,
+];
+
+const CRITICALITY_LEVEL_BY_COLUMN: Record<AnswerColumnId, number> = {
+  [COLUMN_IDS.low]: 1,
+  [COLUMN_IDS.medium]: 2,
+  [COLUMN_IDS.high]: 3,
+};
 
 const COLUMN_META: Record<BoardColumnId, ColumnMeta> = {
   [COLUMN_IDS.incoming]: {
@@ -369,7 +382,7 @@ export default function Play() {
 
     try {
       const finishedAt = Date.now();
-      const logs: TelemetryLog[] = COLUMN_ORDER.flatMap((columnId) =>
+      const logs: TelemetryLog[] = ANSWER_COLUMN_ORDER.flatMap((columnId) =>
         board[columnId].map((card) => {
           const itemTelemetry = telemetry[card.id] ?? {
             dragCount: 0,
@@ -380,6 +393,7 @@ export default function Play() {
             card_id: card.id,
             time_spent_ms: Math.max(0, finishedAt - (itemTelemetry.firstDragAt ?? finishedAt)),
             drag_count: itemTelemetry.dragCount,
+            assigned_criticality_level: CRITICALITY_LEVEL_BY_COLUMN[columnId],
           };
         }),
       );
