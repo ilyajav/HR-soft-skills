@@ -444,7 +444,7 @@ export default function Play() {
           <Result
             status="success"
             title="Спасибо!"
-            subTitle="Результат успешно сохранен и отправлен HR."
+            subTitle="Результат успешно сохранен и отправлен."
           />
         </Card>
       </div>
@@ -473,7 +473,7 @@ export default function Play() {
     <Layout className="app-shell">
       {shouldShowStressTimer && stressTimerVisible ? (
         <div className={`stress-timer ${isStressDanger ? "is-danger" : ""}`}>
-          <span className="stress-timer__label">Дедлайн уже идет</span>
+          <span className="stress-timer__label">До окончания тестирования осталось:</span>
           <span className="stress-timer__value">{formatCountdown(stressTimeLeftMs)}</span>
         </div>
       ) : null}
@@ -481,12 +481,9 @@ export default function Play() {
       <div className="page-section">
         <Space direction="vertical" size={24} className="play-stack" style={{ width: "100%" }}>
           <Card bordered={false}>
-            <Typography.Title level={2} style={{ marginTop: 0, marginBottom: 8 }}>
-              {sessionData.title}
-            </Typography.Title>
             <Typography.Paragraph type="secondary" className="priority-hint">
               Распределите все карточки из колонки "Входящие задачи" по колонкам низкой, средней и
-              высокой критичности. Кнопка сохранения станет активной только после полной
+              высокой критичности. Кнопка отправки станет активной только после полной
               сортировки.
             </Typography.Paragraph>
 
@@ -535,7 +532,7 @@ export default function Play() {
                 loading={submitting}
                 disabled={!canSubmit}
               >
-                Сохранить результат
+                Отправить
               </Button>
             </Space>
           </div>

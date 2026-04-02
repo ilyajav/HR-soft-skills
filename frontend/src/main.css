@@ -75,6 +75,10 @@ body {
   padding: 32px 0 48px;
 }
 
+.page-section--wide {
+  width: min(1520px, calc(100% - 32px));
+}
+
 .page-section--narrow {
   width: min(480px, calc(100% - 32px));
   min-height: 100vh;

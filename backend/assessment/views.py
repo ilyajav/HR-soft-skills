@@ -23,7 +23,7 @@ N_MAX = 4
 CRITICALITY_RULES = {
     TaskCard.CriticalityLevel.LOW: {"weight": 0.5, "t_max": 30000},
     TaskCard.CriticalityLevel.MEDIUM: {"weight": 1.0, "t_max": 15000},
-    TaskCard.CriticalityLevel.HIGH: {"weight": 1.5, "t_max": 8000},
+    TaskCard.CriticalityLevel.HIGH: {"weight": 1.5, "t_max": 1000},
 }
 
 
@@ -289,15 +289,16 @@ class PublicSubmitView(APIView):
             rules = CRITICALITY_RULES[card.criticality_level]
             weight = rules["weight"]
             t_max = rules["t_max"]
+            effective_t_min = min(T_MIN, t_max)
             time_spent_ms = log["time_spent_ms"]
             drag_count = log["drag_count"]
 
-            if time_spent_ms <= T_MIN:
+            if time_spent_ms <= effective_t_min:
                 dsi_i = 1.0
             elif time_spent_ms >= t_max:
                 dsi_i = 0.0
             else:
-                dsi_i = 1.0 - ((time_spent_ms - T_MIN) / (t_max - T_MIN))
+                dsi_i = 1.0 - ((time_spent_ms - effective_t_min) / (t_max - effective_t_min))
 
             sri_i = max(0.0, 1.0 - (drag_count / N_MAX))
 

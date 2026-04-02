@@ -255,16 +255,21 @@ export default function Dashboard() {
       title: "Тест",
       dataIndex: "test_title",
       key: "test_title",
+      width: 170,
+      ellipsis: true,
     },
     {
       title: "Сотрудник",
       dataIndex: "candidate_name",
       key: "candidate_name",
+      width: 140,
+      ellipsis: true,
       render: (value: CandidateSession["candidate_name"]) => value || "Аноним",
     },
     {
       title: "Метрики",
       key: "metrics",
+      width: 200,
       render: (_: unknown, session: CandidateSession) => (
         <Space size={[4, 8]} wrap>
           {session.calc_dsi ? <Tag color="blue">{METRIC_LABELS.DSI}</Tag> : null}
@@ -277,6 +282,7 @@ export default function Dashboard() {
       title: "Статус",
       dataIndex: "is_completed",
       key: "is_completed",
+      width: 110,
       render: (value: CandidateSession["is_completed"]) =>
         value ? <Tag color="success">Завершен</Tag> : <Tag color="processing">Открыт</Tag>,
     },
@@ -284,6 +290,7 @@ export default function Dashboard() {
       title: METRIC_LABELS.DSI,
       dataIndex: "final_dsi",
       key: "final_dsi",
+      width: 80,
       render: (value: CandidateSession["final_dsi"]) =>
         typeof value === "number" ? `${value.toFixed(2)}%` : "-",
     },
@@ -291,6 +298,7 @@ export default function Dashboard() {
       title: METRIC_LABELS.SRI,
       dataIndex: "final_sri",
       key: "final_sri",
+      width: 80,
       render: (value: CandidateSession["final_sri"]) =>
         typeof value === "number" ? `${value.toFixed(2)}%` : "-",
     },
@@ -298,19 +306,16 @@ export default function Dashboard() {
       title: METRIC_LABELS.TCEI,
       dataIndex: "final_tcei",
       key: "final_tcei",
+      width: 80,
       render: (value: CandidateSession["final_tcei"]) =>
         typeof value === "number" ? `${value.toFixed(2)}%` : "-",
     },
     {
       title: "Ссылка",
       key: "public_link",
-      width: 280,
+      width: 160,
       render: (_: unknown, session: CandidateSession) => (
-        <Typography.Link
-          href={`${window.location.origin}/play/${session.token}`}
-          target="_blank"
-          style={{ whiteSpace: "nowrap" }}
-        >
+        <Typography.Link href={`${window.location.origin}/play/${session.token}`} target="_blank">
           Открыть страницу тестирования
         </Typography.Link>
       ),
@@ -318,9 +323,14 @@ export default function Dashboard() {
     {
       title: "Результат",
       key: "results",
+      width: 130,
       render: (_: unknown, session: CandidateSession) =>
         session.is_completed ? (
-          <Button type="link" onClick={() => navigate(`/results/${session.id}`)}>
+          <Button
+            type="link"
+            onClick={() => navigate(`/results/${session.id}`)}
+            style={{ paddingInline: 0, height: "auto", whiteSpace: "normal", textAlign: "left" }}
+          >
             Открыть страницу результата
           </Button>
         ) : (
@@ -330,6 +340,7 @@ export default function Dashboard() {
     {
       title: "Действия",
       key: "actions",
+      width: 110,
       render: (_: unknown, session: CandidateSession) =>
         session.test_id ? (
           <Popconfirm
@@ -340,7 +351,12 @@ export default function Dashboard() {
             okButtonProps={{ danger: true, loading: deletingTestId === session.test_id }}
             onConfirm={() => deleteAssessment(session.test_id)}
           >
-            <Button danger type="link" loading={deletingTestId === session.test_id}>
+            <Button
+              danger
+              type="link"
+              loading={deletingTestId === session.test_id}
+              style={{ paddingInline: 0, height: "auto", whiteSpace: "normal", textAlign: "left" }}
+            >
               Удалить тест
             </Button>
           </Popconfirm>
@@ -358,7 +374,7 @@ export default function Dashboard() {
 
   return (
     <Layout className="app-shell">
-      <div className="page-section">
+      <div className="page-section page-section--wide">
         <Space direction="vertical" size={24} className="dashboard-stack" style={{ width: "100%" }}>
           <Card bordered={false}>
             <Space
@@ -532,7 +548,7 @@ export default function Dashboard() {
                 dataSource={sessions}
                 columns={tableColumns}
                 pagination={{ pageSize: 8 }}
-                scroll={{ x: 1200 }}
+                scroll={{ x: "max-content" }}
               />
             )}
           </Card>

@@ -35,7 +35,7 @@ const CRITICALITY_TAG_COLORS: Record<number, string> = {
 
 const criticalityColumns: TableProps<CandidateSessionCriticalityResult>["columns"] = [
   {
-    title: "Карточка",
+    title: "Вопрос",
     dataIndex: "card_text",
     key: "card_text",
   },
@@ -49,7 +49,7 @@ const criticalityColumns: TableProps<CandidateSessionCriticalityResult>["columns
     ),
   },
   {
-    title: "Выбрал кандидат",
+    title: "Выбор кандидата",
     key: "assigned_criticality",
     render: (_: unknown, record) =>
       record.assigned_criticality_level ? (
@@ -224,11 +224,6 @@ export default function Results() {
             {selectedMetricTags.map((metric) => (
               <Tag key={metric}>{metric}</Tag>
             ))}
-            {!session.is_completed ? (
-              <Tag color="processing">Открыт</Tag>
-            ) : (
-              <Tag color="success">Завершен</Tag>
-            )}
           </Space>
 
           <div
