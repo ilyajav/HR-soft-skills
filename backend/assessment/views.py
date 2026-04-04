@@ -23,7 +23,7 @@ N_MAX = 4
 CRITICALITY_RULES = {
     TaskCard.CriticalityLevel.LOW: {"weight": 0.5, "t_max": 30000},
     TaskCard.CriticalityLevel.MEDIUM: {"weight": 1.0, "t_max": 15000},
-    TaskCard.CriticalityLevel.HIGH: {"weight": 1.5, "t_max": 1000},
+    TaskCard.CriticalityLevel.HIGH: {"weight": 1.5, "t_max": 10000},
 }
 
 
