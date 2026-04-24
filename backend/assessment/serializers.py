@@ -117,12 +117,73 @@ class TestConfigListSerializer(serializers.ModelSerializer):
 
 
 class TestConfigCreateSerializer(serializers.ModelSerializer):
-    cards = TaskCardWriteSerializer(many=True)
+    cards = TaskCardWriteSerializer(many=True, required=False)
     session_token = serializers.UUIDField(read_only=True)
+    source_test_id = serializers.PrimaryKeyRelatedField(
+        queryset=TestConfig.objects.none(),
+        required=False,
+        write_only=True,
+    )
 
     class Meta:
         model = TestConfig
-        fields = ("id", "title", "calc_dsi", "calc_sri", "calc_tcei", "cards", "session_token")
+        fields = (
+            "id",
+            "title",
+            "calc_dsi",
+            "calc_sri",
+            "calc_tcei",
+            "cards",
+            "session_token",
+            "source_test_id",
+        )
+        extra_kwargs = {
+            "title": {"required": False},
+            "calc_dsi": {"required": False},
+            "calc_sri": {"required": False},
+            "calc_tcei": {"required": False},
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and user.is_authenticated:
+            self.fields["source_test_id"].queryset = TestConfig.objects.filter(hr=user).prefetch_related(
+                "cards"
+            )
+
+    def _build_copy_title(self, source_test):
+        base_title = normalize_test_title(source_test.title) or "Копия теста"
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        if not user or not user.is_authenticated:
+            return f"{base_title} (копия)"
+
+        existing_titles = {
+            normalize_test_title(title).casefold()
+            for title in TestConfig.objects.filter(hr=user).values_list("title", flat=True)
+        }
+        candidate_title = f"{base_title} (копия)"
+        if normalize_test_title(candidate_title).casefold() not in existing_titles:
+            return candidate_title
+
+        copy_number = 2
+        while True:
+            candidate_title = f"{base_title} (копия {copy_number})"
+            if normalize_test_title(candidate_title).casefold() not in existing_titles:
+                return candidate_title
+            copy_number += 1
+
+    def _build_source_cards_data(self, source_test):
+        return [
+            {
+                "text": card.text,
+                "criticality_level": card.criticality_level,
+            }
+            for card in source_test.cards.all()
+        ]
 
     def validate_title(self, value):
         normalized_title = normalize_test_title(value)
@@ -147,6 +208,15 @@ class TestConfigCreateSerializer(serializers.ModelSerializer):
         return normalized_title
 
     def validate(self, attrs):
+        source_test = attrs.get("source_test_id")
+        if source_test:
+            attrs.setdefault("title", self._build_copy_title(source_test))
+            attrs.setdefault("calc_dsi", source_test.calc_dsi)
+            attrs.setdefault("calc_sri", source_test.calc_sri)
+            attrs.setdefault("calc_tcei", source_test.calc_tcei)
+            if not attrs.get("cards"):
+                attrs["cards"] = self._build_source_cards_data(source_test)
+
         cards = attrs.get("cards", [])
         if not cards:
             raise serializers.ValidationError(
@@ -167,7 +237,11 @@ class TestConfigCreateSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        cards_data = validated_data.pop("cards")
+        source_test = validated_data.pop("source_test_id", None)
+        cards_data = validated_data.pop("cards", None)
+        if cards_data is None and source_test is not None:
+            cards_data = self._build_source_cards_data(source_test)
+
         test_config = TestConfig.objects.create(**validated_data)
 
         TaskCard.objects.bulk_create(

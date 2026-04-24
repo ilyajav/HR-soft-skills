@@ -26,6 +26,7 @@ import type {
   AssessmentFormState,
   CandidateSession,
   CreatedAssessmentResponse,
+  TestTemplate,
 } from "../types";
 
 const METRIC_LABELS = {
@@ -66,6 +67,25 @@ const normalizeMetricSelection = (
 
 const normalizeTitle = (title: string): string => title.trim().replace(/\s+/g, " ").toLocaleLowerCase();
 
+const buildTemplateCopyTitle = (templateTitle: string, templates: TestTemplate[]): string => {
+  const normalizedExistingTitles = new Set(templates.map((template) => normalizeTitle(template.title)));
+  const baseTitle = templateTitle.trim().replace(/\s+/g, " ") || "Копия теста";
+  const firstCandidate = `${baseTitle} (копия)`;
+
+  if (!normalizedExistingTitles.has(normalizeTitle(firstCandidate))) {
+    return firstCandidate;
+  }
+
+  let copyNumber = 2;
+  while (true) {
+    const candidate = `${baseTitle} (копия ${copyNumber})`;
+    if (!normalizedExistingTitles.has(normalizeTitle(candidate))) {
+      return candidate;
+    }
+    copyNumber += 1;
+  }
+};
+
 const getFieldErrorMessage = (error: unknown, fieldName: string): string | null => {
   if (!axios.isAxiosError(error)) {
     return null;
@@ -92,9 +112,12 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const hrCabinetLabel = getHrCabinetLabel();
   const [sessions, setSessions] = useState<CandidateSession[]>([]);
+  const [templates, setTemplates] = useState<TestTemplate[]>([]);
   const [createdLink, setCreatedLink] = useState("");
   const [form, setForm] = useState<AssessmentFormState>(createEmptyForm);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState("");
   const [formError, setFormError] = useState("");
   const [titleError, setTitleError] = useState("");
@@ -123,8 +146,22 @@ export default function Dashboard() {
     }
   };
 
+  const loadTemplates = async (): Promise<void> => {
+    setTemplatesLoading(true);
+
+    try {
+      const response = await api.get<TestTemplate[]>("/hr/tests/");
+      setTemplates(response.data);
+    } catch {
+      setFormError("Не удалось загрузить список тестов для шаблонов.");
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
   useEffect(() => {
     void loadSessions();
+    void loadTemplates();
     const intervalId = window.setInterval(() => {
       void loadSessions({ silent: true });
     }, 15000);
@@ -175,6 +212,33 @@ export default function Dashboard() {
     }));
   };
 
+  const applyTemplate = (templateId: number | null) => {
+    setSelectedTemplateId(templateId);
+    setCreatedLink("");
+    setFormError("");
+
+    if (templateId === null) {
+      return;
+    }
+
+    const template = templates.find((item) => item.id === templateId);
+    if (!template) {
+      return;
+    }
+
+    setForm({
+      title: buildTemplateCopyTitle(template.title, templates),
+      calc_dsi: template.calc_dsi,
+      calc_sri: template.calc_sri,
+      calc_tcei: template.calc_tcei,
+      cards: template.cards.map((card) => ({
+        text: card.text,
+        criticality_level: card.criticality_level,
+      })),
+    });
+    setTitleError("");
+  };
+
   const updateMetric = (key: MetricSelectionKey, checked: boolean) => {
     setForm((current) => {
       if (key === "calc_tcei") {
@@ -217,12 +281,15 @@ export default function Dashboard() {
         ...form,
         title: trimmedTitle,
         cards: form.cards.filter((card) => card.text.trim() !== ""),
+        ...(selectedTemplateId ? { source_test_id: selectedTemplateId } : {}),
       };
       const response = await api.post<CreatedAssessmentResponse>("/hr/tests/", payload);
       setCreatedLink(`${window.location.origin}/play/${response.data.session_token}`);
       setForm(createEmptyForm());
+      setSelectedTemplateId(null);
       setTitleError("");
       await loadSessions();
+      await loadTemplates();
     } catch (error) {
       const nextTitleError = getFieldErrorMessage(error, "title");
       setTitleError(nextTitleError ?? "");
@@ -240,7 +307,11 @@ export default function Dashboard() {
 
     try {
       await api.delete(`/hr/tests/${testId}/`);
+      if (selectedTemplateId === testId) {
+        setSelectedTemplateId(null);
+      }
       await loadSessions({ silent: true });
+      await loadTemplates();
     } catch (error) {
       setSessionsError(getApiErrorMessage(error, "Не удалось удалить тест."));
     } finally {
@@ -397,7 +468,14 @@ export default function Dashboard() {
                 <Button type="primary" onClick={() => navigate("/statistics")}>
                   Общая статистика
                 </Button>
-                <Button onClick={() => void loadSessions()}>Обновить</Button>
+                <Button
+                  onClick={() => {
+                    void loadSessions();
+                    void loadTemplates();
+                  }}
+                >
+                  Обновить
+                </Button>
                 <Button onClick={logout}>Выйти</Button>
               </Space>
             </Space>
@@ -432,6 +510,26 @@ export default function Dashboard() {
 
             <Form layout="vertical" onFinish={createAssessment} requiredMark={false}>
               <div className="dashboard-form-grid">
+                <Form.Item label="Шаблон теста по уже созданным тестам">
+                  <Select
+                    size="large"
+                    allowClear
+                    showSearch
+                    loading={templatesLoading}
+                    value={selectedTemplateId ?? undefined}
+                    placeholder="Выберите существующий тест как шаблон"
+                    optionFilterProp="label"
+                    options={templates.map((template) => ({
+                      value: template.id,
+                      label: template.title,
+                    }))}
+                    onChange={(value) => applyTemplate(value ?? null)}
+                    notFoundContent={
+                      templatesLoading ? <Spin size="small" /> : "Нет доступных шаблонов"
+                    }
+                  />
+                </Form.Item>
+
                 <Form.Item
                   label="Название теста"
                   required

@@ -16,6 +16,15 @@ export interface AssessmentCardDraft {
   criticality_level: number;
 }
 
+export interface TestTemplate {
+  id: number;
+  title: string;
+  calc_dsi: boolean;
+  calc_sri: boolean;
+  calc_tcei: boolean;
+  cards: AssessmentCard[];
+}
+
 export interface AssessmentFormState {
   title: string;
   calc_dsi: boolean;
