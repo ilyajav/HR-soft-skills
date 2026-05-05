@@ -1,15 +1,20 @@
 from django.db import transaction
-from django.db.models import Avg, F
+from django.db.models import Avg, Count, F, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
 from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import CandidateSession, TaskCard, TestConfig
+from .models import AssessmentProfile, CandidateSession, HRUser, TaskCard, TestConfig, get_default_assessment_profile
+from .permissions import IsSystemAdmin
 from .serializers import (
+    AdminHRUserCreateSerializer,
+    AdminHRUserListSerializer,
+    AssessmentProfileSerializer,
     CandidateSessionDetailSerializer,
     CandidateSessionDashboardSerializer,
+    HRAssessmentProfileSerializer,
     HRRegistrationSerializer,
     PublicPlaySerializer,
     SubmitTelemetrySerializer,
@@ -17,14 +22,14 @@ from .serializers import (
     TestConfigListSerializer,
 )
 
-T_MIN = 2000
-N_MAX = 4
-
-CRITICALITY_RULES = {
-    TaskCard.CriticalityLevel.LOW: {"weight": 0.5, "t_max": 30000},
-    TaskCard.CriticalityLevel.MEDIUM: {"weight": 1.0, "t_max": 15000},
-    TaskCard.CriticalityLevel.HIGH: {"weight": 1.5, "t_max": 10000},
-}
+def build_auth_response(user, token):
+    is_superuser = bool(user.is_superuser)
+    return {
+        "token": token.key,
+        "username": user.username,
+        "is_superuser": is_superuser,
+        "role": "admin" if is_superuser else "hr",
+    }
 
 
 class HRLoginView(APIView):
@@ -33,20 +38,27 @@ class HRLoginView(APIView):
     def post(self, request):
         from django.contrib.auth import authenticate
 
+        username = request.data.get("username")
+        password = request.data.get("password")
         user = authenticate(
-            username=request.data.get("username"),
-            password=request.data.get("password"),
+            username=username,
+            password=password,
         )
         if not user:
+            disabled_user = HRUser.objects.filter(username=username, is_active=False).first()
+            if disabled_user and disabled_user.check_password(password):
+                return Response(
+                    {"detail": "Пользователь отключён."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             return Response(
-                {
-                    "detail": "\u041d\u0435\u0432\u0435\u0440\u043d\u044b\u0439 \u043b\u043e\u0433\u0438\u043d \u0438\u043b\u0438 \u043f\u0430\u0440\u043e\u043b\u044c."
-                },
+                {"detail": "Неверный логин или пароль."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         token, _ = Token.objects.get_or_create(user=user)
-        return Response({"token": token.key, "username": user.username})
+        return Response(build_auth_response(user, token))
 
 
 class HRRegisterView(APIView):
@@ -58,16 +70,144 @@ class HRRegisterView(APIView):
         user = serializer.save()
         token, _ = Token.objects.get_or_create(user=user)
         return Response(
-            {"token": token.key, "username": user.username},
+            build_auth_response(user, token),
             status=status.HTTP_201_CREATED,
         )
+
+
+class AdminHRUserListCreateView(generics.ListCreateAPIView):
+    permission_classes = [permissions.IsAuthenticated, IsSystemAdmin]
+
+    def get_queryset(self):
+        return (
+            HRUser.objects.filter(is_superuser=False)
+            .annotate(tests_count=Count("test_configs"))
+            .order_by("username")
+        )
+
+    def get_serializer_class(self):
+        return AdminHRUserCreateSerializer if self.request.method == "POST" else AdminHRUserListSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(
+            AdminHRUserListSerializer(user).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminHRUserDeactivateView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsSystemAdmin]
+
+    def delete(self, request, pk):
+        user = get_object_or_404(HRUser, pk=pk)
+
+        if user.is_superuser:
+            return Response(
+                {"detail": "Администратора нельзя отключить через этот endpoint."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if user.id == request.user.id:
+            return Response(
+                {"detail": "Нельзя отключить самого себя."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not user.is_active:
+            return Response(
+                AdminHRUserListSerializer(user).data,
+                status=status.HTTP_200_OK,
+            )
+
+        user.is_active = False
+        user.save(update_fields=["is_active"])
+        return Response(AdminHRUserListSerializer(user).data, status=status.HTTP_200_OK)
+
+
+class AdminAssessmentProfileListCreateView(generics.ListCreateAPIView):
+    permission_classes = [permissions.IsAuthenticated, IsSystemAdmin]
+    serializer_class = AssessmentProfileSerializer
+
+    def get_queryset(self):
+        return AssessmentProfile.objects.annotate(tests_count=Count("test_configs")).order_by(
+            "is_archived",
+            "name",
+            "version",
+            "id",
+        )
+
+
+class AdminAssessmentProfileDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [permissions.IsAuthenticated, IsSystemAdmin]
+    serializer_class = AssessmentProfileSerializer
+    http_method_names = ["get", "patch", "delete", "head", "options"]
+
+    def get_queryset(self):
+        return AssessmentProfile.objects.annotate(tests_count=Count("test_configs"))
+
+    def destroy(self, request, *args, **kwargs):
+        profile = self.get_object()
+
+        if profile.is_base_profile:
+            return Response(
+                {"detail": "Базовый профиль нельзя удалить."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if profile.test_configs.exists():
+            profile.is_archived = True
+            profile.is_active = False
+            profile.save(update_fields=["is_archived", "is_active", "updated_at"])
+            return Response(self.get_serializer(profile).data, status=status.HTTP_200_OK)
+
+        profile.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class HRAssessmentProfileListView(generics.ListAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = HRAssessmentProfileSerializer
+
+    def get_queryset(self):
+        mode = self.request.query_params.get("mode", "create")
+        if mode == "filter":
+            return (
+                AssessmentProfile.objects.filter(
+                    Q(is_active=True, is_archived=False) | Q(test_configs__hr=self.request.user)
+                )
+                .distinct()
+                .order_by("is_archived", "name", "version", "id")
+            )
+
+        return AssessmentProfile.objects.filter(is_active=True, is_archived=False).order_by(
+            "name",
+            "version",
+            "id",
+        )
+
+
+def get_requested_profile_id(request):
+    profile_id = request.query_params.get("profile_id")
+    if profile_id:
+        return profile_id
+
+    return get_default_assessment_profile().id
 
 
 class HRTestListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return TestConfig.objects.filter(hr=self.request.user).prefetch_related("cards")
+        queryset = TestConfig.objects.filter(hr=self.request.user).select_related(
+            "assessment_profile"
+        ).prefetch_related("cards")
+        profile_id = self.request.query_params.get("profile_id")
+        if profile_id:
+            queryset = queryset.filter(assessment_profile_id=profile_id)
+        return queryset
 
     def get_serializer_class(self):
         return TestConfigCreateSerializer if self.request.method == "POST" else TestConfigListSerializer
@@ -88,9 +228,11 @@ class HRSessionListView(generics.ListAPIView):
     serializer_class = CandidateSessionDashboardSerializer
 
     def get_queryset(self):
+        profile_id = get_requested_profile_id(self.request)
         return (
             CandidateSession.objects.filter(test_config__hr=self.request.user)
-            .select_related("test_config")
+            .filter(test_config__assessment_profile_id=profile_id)
+            .select_related("test_config", "test_config__assessment_profile")
             .order_by("-id")
         )
 
@@ -102,7 +244,7 @@ class HRSessionDetailView(generics.RetrieveAPIView):
     def get_queryset(self):
         return (
             CandidateSession.objects.filter(test_config__hr=self.request.user)
-            .select_related("test_config")
+            .select_related("test_config", "test_config__assessment_profile")
             .prefetch_related("test_config__cards")
         )
 
@@ -115,9 +257,11 @@ class HRStatisticsView(APIView):
         return round(value, precision) if value is not None else None
 
     def get(self, request):
+        profile_id = get_requested_profile_id(request)
         completed_sessions_qs = CandidateSession.objects.filter(
             is_completed=True,
             test_config__hr=request.user,
+            test_config__assessment_profile_id=profile_id,
         ).order_by("id")
         completed_sessions = list(
             completed_sessions_qs.values(
@@ -253,6 +397,7 @@ class PublicSubmitView(APIView):
         final_dsi, final_sri, final_tcei = self._calculate_scores(
             logs,
             card_map,
+            session.test_config.get_profile_params_snapshot(),
             session.test_config.calc_dsi,
             session.test_config.calc_sri,
             session.test_config.calc_tcei,
@@ -274,7 +419,7 @@ class PublicSubmitView(APIView):
             }
         )
 
-    def _calculate_scores(self, logs, card_map, calc_dsi, calc_sri, calc_tcei):
+    def _calculate_scores(self, logs, card_map, profile_params, calc_dsi, calc_sri, calc_tcei):
         """
         Backend-only thesis algorithm.
         The UI submits raw telemetry, and the API converts it into weighted scores.
@@ -286,10 +431,10 @@ class PublicSubmitView(APIView):
 
         for log in logs:
             card = card_map[log["card_id"]]
-            rules = CRITICALITY_RULES[card.criticality_level]
+            rules = profile_params[card.criticality_level]
             weight = rules["weight"]
             t_max = rules["t_max"]
-            effective_t_min = min(T_MIN, t_max)
+            effective_t_min = min(profile_params["min_time_ms"], t_max)
             time_spent_ms = log["time_spent_ms"]
             drag_count = log["drag_count"]
 
@@ -300,7 +445,7 @@ class PublicSubmitView(APIView):
             else:
                 dsi_i = 1.0 - ((time_spent_ms - effective_t_min) / (t_max - effective_t_min))
 
-            sri_i = max(0.0, 1.0 - (drag_count / N_MAX))
+            sri_i = max(0.0, 1.0 - (drag_count / profile_params["sri_max_drag_count"]))
 
             weighted_dsi_sum += dsi_i * weight
             weighted_sri_sum += sri_i * weight

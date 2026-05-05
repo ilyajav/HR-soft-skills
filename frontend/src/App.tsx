@@ -1,15 +1,29 @@
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Space, Switch, Typography } from "antd";
+import AdminAssessmentProfiles from "./pages/AdminAssessmentProfiles";
+import AdminDashboard from "./pages/AdminDashboard";
+import AdminHRUsers from "./pages/AdminHRUsers";
 import Dashboard from "./pages/Dashboard";
 import GlobalStats from "./pages/GlobalStats";
 import Login from "./pages/Login";
 import Play from "./pages/Play";
 import Results from "./pages/Results";
+import {
+  ADMIN_HOME_PATH,
+  ADMIN_HR_USERS_PATH,
+  ADMIN_PROFILES_PATH,
+  HR_HOME_PATH,
+  getHomePathForRole,
+  getStoredUserRole,
+  hasAuthToken,
+} from "./auth";
+import type { UserRole } from "./auth";
 import type { ThemeMode } from "./types";
 
 interface ProtectedRouteProps {
   children: ReactNode;
+  requiredRole?: UserRole;
 }
 
 interface AppProps {
@@ -17,13 +31,25 @@ interface AppProps {
   onThemeChange: (checked: boolean) => void;
 }
 
-function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const token = window.localStorage.getItem("hr_token");
-  return token ? children : <Navigate to="/login" replace />;
+function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
+  if (!hasAuthToken()) {
+    return <Navigate to="/login" replace />;
+  }
+
+  const role = getStoredUserRole();
+  if (requiredRole === "admin" && role !== "admin") {
+    return <Navigate to={HR_HOME_PATH} replace />;
+  }
+
+  if (requiredRole === "hr" && role === "admin") {
+    return <Navigate to={ADMIN_HOME_PATH} replace />;
+  }
+
+  return children;
 }
 
 export default function App({ themeMode, onThemeChange }: AppProps) {
-  const hasToken = Boolean(window.localStorage.getItem("hr_token"));
+  const homePath = hasAuthToken() ? getHomePathForRole() : "/login";
 
   return (
     <>
@@ -37,12 +63,36 @@ export default function App({ themeMode, onThemeChange }: AppProps) {
       </div>
 
       <Routes>
-        <Route path="/" element={<Navigate to={hasToken ? "/dashboard" : "/login"} replace />} />
+        <Route path="/" element={<Navigate to={homePath} replace />} />
         <Route path="/login" element={<Login />} />
         <Route
-          path="/dashboard"
+          path={ADMIN_HOME_PATH}
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requiredRole="admin">
+              <AdminDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path={ADMIN_HR_USERS_PATH}
+          element={
+            <ProtectedRoute requiredRole="admin">
+              <AdminHRUsers />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path={ADMIN_PROFILES_PATH}
+          element={
+            <ProtectedRoute requiredRole="admin">
+              <AdminAssessmentProfiles />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path={HR_HOME_PATH}
+          element={
+            <ProtectedRoute requiredRole="hr">
               <Dashboard />
             </ProtectedRoute>
           }
@@ -50,7 +100,7 @@ export default function App({ themeMode, onThemeChange }: AppProps) {
         <Route
           path="/statistics"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requiredRole="hr">
               <GlobalStats />
             </ProtectedRoute>
           }
@@ -58,13 +108,13 @@ export default function App({ themeMode, onThemeChange }: AppProps) {
         <Route
           path="/results/:sessionId"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requiredRole="hr">
               <Results />
             </ProtectedRoute>
           }
         />
         <Route path="/play/:token" element={<Play />} />
-        <Route path="*" element={<Navigate to={hasToken ? "/dashboard" : "/login"} replace />} />
+        <Route path="*" element={<Navigate to={homePath} replace />} />
       </Routes>
     </>
   );

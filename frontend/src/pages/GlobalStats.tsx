@@ -8,6 +8,7 @@ import {
   Empty,
   Layout,
   Row,
+  Select,
   Space,
   Spin,
   Statistic,
@@ -16,8 +17,9 @@ import {
 } from "antd";
 import { useNavigate } from "react-router-dom";
 import api, { getApiErrorMessage } from "../api";
+import { clearAuth } from "../auth";
 import { getHrCabinetLabel } from "../hrAccount";
-import type { StatisticsCompletedSession, StatisticsResponse } from "../types";
+import type { AssessmentProfile, StatisticsCompletedSession, StatisticsResponse } from "../types";
 
 type StatisticsMetricKey = "average_dsi" | "average_sri" | "average_tcei";
 type SessionMetricKey = "final_dsi" | "final_sri" | "final_tcei";
@@ -40,6 +42,7 @@ interface PieChartDatum {
 }
 
 const TOP_TESTS_LIMIT = 10;
+const BASE_PROFILE_NAME = "Базовый профиль";
 
 const PIE_COLOR_RANGE = [
   "#1677ff",
@@ -89,6 +92,12 @@ const METRIC_CHARTS: MetricChartDefinition[] = [
 ];
 
 const hasMetricValue = (value: number | null | undefined): value is number => typeof value === "number";
+
+const getDefaultProfile = (profiles: AssessmentProfile[]): AssessmentProfile | null =>
+  profiles.find((profile) => profile.name === BASE_PROFILE_NAME) ?? profiles[0] ?? null;
+
+const buildProfileOptionLabel = (profile: AssessmentProfile): string =>
+  `${profile.name}, версия ${profile.version}${profile.is_archived ? " (архивный)" : ""}`;
 
 const createTopTestContributionData = (
   sessions: StatisticsCompletedSession[],
@@ -222,15 +231,26 @@ export default function GlobalStats() {
   const hrCabinetLabel = getHrCabinetLabel();
   const { token } = antdTheme.useToken();
   const [stats, setStats] = useState<StatisticsResponse | null>(null);
+  const [profiles, setProfiles] = useState<AssessmentProfile[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profilesLoading, setProfilesLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const loadStatistics = async () => {
+  const loadStatistics = async (profileId = selectedProfileId) => {
+    if (!profileId) {
+      setStats(null);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError("");
 
     try {
-      const response = await api.get<StatisticsResponse>("/hr/statistics/");
+      const response = await api.get<StatisticsResponse>("/hr/statistics/", {
+        params: { profile_id: profileId },
+      });
       setStats(response.data);
     } catch (loadError) {
       setError(getApiErrorMessage(loadError, "Не удалось загрузить общую статистику."));
@@ -239,8 +259,37 @@ export default function GlobalStats() {
     }
   };
 
+  const loadProfiles = async (): Promise<number | null> => {
+    setProfilesLoading(true);
+
+    try {
+      const response = await api.get<AssessmentProfile[]>("/hr/assessment-profiles/", {
+        params: { mode: "filter" },
+      });
+      setProfiles(response.data);
+      const defaultProfile = getDefaultProfile(response.data);
+      const defaultProfileId = defaultProfile?.id ?? null;
+      setSelectedProfileId((current) =>
+        current && response.data.some((profile) => profile.id === current)
+          ? current
+          : defaultProfileId,
+      );
+      return defaultProfileId;
+    } catch (loadError) {
+      setError(getApiErrorMessage(loadError, "Не удалось загрузить профили оценки."));
+      return null;
+    } finally {
+      setProfilesLoading(false);
+    }
+  };
+
   useEffect(() => {
-    void loadStatistics();
+    const initializeStatistics = async () => {
+      const defaultProfileId = await loadProfiles();
+      await loadStatistics(defaultProfileId);
+    };
+
+    void initializeStatistics();
   }, []);
 
   const chartTheme = useMemo(
@@ -331,10 +380,10 @@ export default function GlobalStats() {
       }),
     [chartTheme, stats, token.colorText],
   );
+  const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
 
   const logout = () => {
-    window.localStorage.removeItem("hr_token");
-    window.localStorage.removeItem("hr_username");
+    clearAuth();
     navigate("/login");
   };
 
@@ -362,12 +411,41 @@ export default function GlobalStats() {
                   Страница показывает завершенные результаты ваших сотрудников и считает средние
                   значения по DSI, SRI и TCEI на основе этих результатов.
                 </Typography.Paragraph>
+                <Space direction="vertical" size={8} style={{ marginTop: 16, minWidth: 320 }}>
+                  <Typography.Text strong>Профиль оценки</Typography.Text>
+                  <Select
+                    loading={profilesLoading}
+                    value={selectedProfileId ?? undefined}
+                    options={profiles.map((profile) => ({
+                      value: profile.id,
+                      label: buildProfileOptionLabel(profile),
+                    }))}
+                    onChange={(value) => {
+                      setSelectedProfileId(value);
+                      void loadStatistics(value);
+                    }}
+                    notFoundContent={profilesLoading ? <Spin size="small" /> : "Нет доступных профилей"}
+                  />
+                  {selectedProfile ? (
+                    <Typography.Text type="secondary">
+                      Статистика по профилю: {selectedProfile.name}, версия {selectedProfile.version}
+                      {selectedProfile.is_archived ? " (архивный)" : ""}.
+                    </Typography.Text>
+                  ) : null}
+                </Space>
               </div>
               <Space wrap>
                 <Button type="primary" onClick={() => navigate("/dashboard")}>
                   Список сотрудников
                 </Button>
-                <Button onClick={() => void loadStatistics()}>Обновить</Button>
+                <Button
+                  onClick={() => {
+                    void loadProfiles();
+                    void loadStatistics();
+                  }}
+                >
+                  Обновить
+                </Button>
                 <Button onClick={logout}>Выйти</Button>
               </Space>
             </Space>
@@ -383,6 +461,14 @@ export default function GlobalStats() {
             </Card>
           ) : stats ? (
             <>
+              {stats.total_sessions === 0 ? (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="По выбранному профилю пока нет завершённых тестов."
+                />
+              ) : null}
+
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={12} xl={6}>
                   <Card bordered={false}>

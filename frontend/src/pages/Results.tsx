@@ -215,6 +215,12 @@ export default function Results() {
                 <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
                   {session.candidate_name || "Сотрудник без имени"}
                 </Typography.Paragraph>
+                <Space size={[4, 8]} wrap style={{ marginTop: 12 }}>
+                  <Tag color={session.profile_is_archived ? "default" : "blue"}>
+                    Профиль оценки: {session.profile_name}, версия {session.profile_version}
+                  </Tag>
+                  {session.profile_is_archived ? <Tag>Архивный профиль</Tag> : null}
+                </Space>
               </div>
               <Button onClick={() => navigate("/dashboard")}>Назад к списку тестов</Button>
             </Space>

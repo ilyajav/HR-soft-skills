@@ -20,10 +20,12 @@ import {
 import type { TableProps } from "antd";
 import { useNavigate } from "react-router-dom";
 import api, { getApiErrorMessage } from "../api";
+import { clearAuth } from "../auth";
 import { getHrCabinetLabel } from "../hrAccount";
 import type {
   AssessmentCardDraft,
   AssessmentFormState,
+  AssessmentProfile,
   CandidateSession,
   CreatedAssessmentResponse,
   TestTemplate,
@@ -38,6 +40,7 @@ const METRIC_LABELS = {
 type MetricSelectionKey = "calc_dsi" | "calc_sri" | "calc_tcei";
 
 const DUPLICATE_TITLE_ERROR = "Тест с таким названием уже существует.";
+const BASE_PROFILE_NAME = "Базовый профиль";
 
 const createEmptyForm = (): AssessmentFormState => ({
   title: "",
@@ -66,6 +69,12 @@ const normalizeMetricSelection = (
 };
 
 const normalizeTitle = (title: string): string => title.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+
+const getDefaultProfile = (profiles: AssessmentProfile[]): AssessmentProfile | null =>
+  profiles.find((profile) => profile.name === BASE_PROFILE_NAME) ?? profiles[0] ?? null;
+
+const buildProfileOptionLabel = (profile: AssessmentProfile): string =>
+  `${profile.name}, версия ${profile.version}${profile.is_archived ? " (архивный)" : ""}`;
 
 const buildTemplateCopyTitle = (templateTitle: string, templates: TestTemplate[]): string => {
   const normalizedExistingTitles = new Set(templates.map((template) => normalizeTitle(template.title)));
@@ -113,24 +122,43 @@ export default function Dashboard() {
   const hrCabinetLabel = getHrCabinetLabel();
   const [sessions, setSessions] = useState<CandidateSession[]>([]);
   const [templates, setTemplates] = useState<TestTemplate[]>([]);
+  const [createProfiles, setCreateProfiles] = useState<AssessmentProfile[]>([]);
+  const [filterProfiles, setFilterProfiles] = useState<AssessmentProfile[]>([]);
   const [createdLink, setCreatedLink] = useState("");
   const [form, setForm] = useState<AssessmentFormState>(createEmptyForm);
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+  const [selectedCreateProfileId, setSelectedCreateProfileId] = useState<number | null>(null);
+  const [selectedFilterProfileId, setSelectedFilterProfileId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [profilesLoading, setProfilesLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState("");
   const [formError, setFormError] = useState("");
   const [titleError, setTitleError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [deletingTestId, setDeletingTestId] = useState<number | null>(null);
 
-  const loadSessions = async ({ silent = false }: { silent?: boolean } = {}): Promise<void> => {
+  const loadSessions = async ({
+    profileId = selectedFilterProfileId,
+    silent = false,
+  }: {
+    profileId?: number | null;
+    silent?: boolean;
+  } = {}): Promise<void> => {
+    if (!profileId) {
+      setSessions([]);
+      setLoading(false);
+      return;
+    }
+
     if (!silent) {
       setLoading(true);
     }
 
     try {
-      const response = await api.get<CandidateSession[]>("/hr/sessions/");
+      const response = await api.get<CandidateSession[]>("/hr/sessions/", {
+        params: { profile_id: profileId },
+      });
       setSessions(response.data);
       setSessionsError("");
     } catch {
@@ -160,14 +188,25 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    void loadSessions();
-    void loadTemplates();
+    const initializeDashboard = async () => {
+      const defaultProfileId = await loadProfiles();
+      await Promise.all([loadSessions({ profileId: defaultProfileId }), loadTemplates()]);
+    };
+
+    void initializeDashboard();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedFilterProfileId) {
+      return undefined;
+    }
+
     const intervalId = window.setInterval(() => {
-      void loadSessions({ silent: true });
+      void loadSessions({ profileId: selectedFilterProfileId, silent: true });
     }, 15000);
 
     return () => window.clearInterval(intervalId);
-  }, []);
+  }, [selectedFilterProfileId]);
 
   useEffect(() => {
     if (!titleError) {
@@ -178,9 +217,45 @@ export default function Dashboard() {
   }, [sessions, form.title, titleError]);
 
   const logout = () => {
-    window.localStorage.removeItem("hr_token");
-    window.localStorage.removeItem("hr_username");
+    clearAuth();
     navigate("/login");
+  };
+
+  const loadProfiles = async (): Promise<number | null> => {
+    setProfilesLoading(true);
+
+    try {
+      const [createResponse, filterResponse] = await Promise.all([
+        api.get<AssessmentProfile[]>("/hr/assessment-profiles/", { params: { mode: "create" } }),
+        api.get<AssessmentProfile[]>("/hr/assessment-profiles/", { params: { mode: "filter" } }),
+      ]);
+
+      setCreateProfiles(createResponse.data);
+      setFilterProfiles(filterResponse.data);
+
+      const nextCreateProfile = getDefaultProfile(createResponse.data);
+      const nextFilterProfile = getDefaultProfile(filterResponse.data);
+      const nextCreateProfileId = nextCreateProfile?.id ?? null;
+      const nextFilterProfileId = nextFilterProfile?.id ?? null;
+
+      setSelectedCreateProfileId((current) =>
+        current && createResponse.data.some((profile) => profile.id === current)
+          ? current
+          : nextCreateProfileId,
+      );
+      setSelectedFilterProfileId((current) =>
+        current && filterResponse.data.some((profile) => profile.id === current)
+          ? current
+          : nextFilterProfileId,
+      );
+
+      return nextFilterProfileId;
+    } catch {
+      setFormError("Не удалось загрузить профили оценки.");
+      return null;
+    } finally {
+      setProfilesLoading(false);
+    }
   };
 
   const hasDuplicateTitle = (title: string): boolean => {
@@ -267,6 +342,12 @@ export default function Dashboard() {
     setSubmitting(true);
     setFormError("");
     setCreatedLink("");
+    if (!selectedCreateProfileId) {
+      setFormError("Выберите профиль оценки.");
+      setSubmitting(false);
+      return;
+    }
+
     const trimmedTitle = form.title.trim();
     if (hasDuplicateTitle(trimmedTitle)) {
       setTitleError(DUPLICATE_TITLE_ERROR);
@@ -280,6 +361,7 @@ export default function Dashboard() {
       const payload = {
         ...form,
         title: trimmedTitle,
+        profile_id: selectedCreateProfileId,
         cards: form.cards.filter((card) => card.text.trim() !== ""),
         ...(selectedTemplateId ? { source_test_id: selectedTemplateId } : {}),
       };
@@ -288,8 +370,9 @@ export default function Dashboard() {
       setForm(createEmptyForm());
       setSelectedTemplateId(null);
       setTitleError("");
-      await loadSessions();
+      await loadSessions({ profileId: selectedFilterProfileId });
       await loadTemplates();
+      await loadProfiles();
     } catch (error) {
       const nextTitleError = getFieldErrorMessage(error, "title");
       setTitleError(nextTitleError ?? "");
@@ -312,6 +395,7 @@ export default function Dashboard() {
       }
       await loadSessions({ silent: true });
       await loadTemplates();
+      await loadProfiles();
     } catch (error) {
       setSessionsError(getApiErrorMessage(error, "Не удалось удалить тест."));
     } finally {
@@ -320,6 +404,10 @@ export default function Dashboard() {
   };
 
   const completedSessions = sessions.filter((session) => session.is_completed);
+  const selectedCreateProfile =
+    createProfiles.find((profile) => profile.id === selectedCreateProfileId) ?? null;
+  const selectedFilterProfile =
+    filterProfiles.find((profile) => profile.id === selectedFilterProfileId) ?? null;
 
   const tableColumns: TableProps<CandidateSession>["columns"] = [
     {
@@ -328,6 +416,19 @@ export default function Dashboard() {
       key: "test_title",
       width: 170,
       ellipsis: true,
+    },
+    {
+      title: "Профиль",
+      key: "profile",
+      width: 180,
+      render: (_: unknown, session: CandidateSession) => (
+        <Space size={[4, 8]} wrap>
+          <Tag color={session.profile_is_archived ? "default" : "blue"}>
+            {session.profile_name}, версия {session.profile_version}
+          </Tag>
+          {session.profile_is_archived ? <Tag>Архивный</Tag> : null}
+        </Space>
+      ),
     },
     {
       title: "Сотрудник",
@@ -438,7 +539,8 @@ export default function Dashboard() {
   ];
 
   const canSubmit = Boolean(
-    form.title.trim() &&
+    selectedCreateProfileId &&
+      form.title.trim() &&
       form.cards.some((card) => card.text.trim()) &&
       (form.calc_dsi || form.calc_sri || form.calc_tcei),
   );
@@ -472,6 +574,7 @@ export default function Dashboard() {
                   onClick={() => {
                     void loadSessions();
                     void loadTemplates();
+                    void loadProfiles();
                   }}
                 >
                   Обновить
@@ -510,6 +613,30 @@ export default function Dashboard() {
 
             <Form layout="vertical" onFinish={createAssessment} requiredMark={false}>
               <div className="dashboard-form-grid">
+                <Form.Item label="Профиль оценки" required>
+                  <Select
+                    size="large"
+                    loading={profilesLoading}
+                    value={selectedCreateProfileId ?? undefined}
+                    placeholder="Выберите профиль оценки"
+                    options={createProfiles.map((profile) => ({
+                      value: profile.id,
+                      label: buildProfileOptionLabel(profile),
+                    }))}
+                    onChange={(value) => {
+                      setSelectedCreateProfileId(value);
+                      setCreatedLink("");
+                    }}
+                    notFoundContent={profilesLoading ? <Spin size="small" /> : "Нет активных профилей"}
+                  />
+                  {selectedCreateProfile ? (
+                    <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+                      {selectedCreateProfile.description || "Описание профиля не задано."} Версия{" "}
+                      {selectedCreateProfile.version}.
+                    </Typography.Paragraph>
+                  ) : null}
+                </Form.Item>
+
                 <Form.Item label="Шаблон теста по уже созданным тестам">
                   <Select
                     size="large"
@@ -632,6 +759,31 @@ export default function Dashboard() {
           </Card>
 
           <Card bordered={false} title="Список тестов и сессий">
+            <Space direction="vertical" size={8} style={{ width: "100%", marginBottom: 16 }}>
+              <Typography.Text strong>Показать тесты по профилю</Typography.Text>
+              <Select
+                style={{ width: "min(100%, 420px)" }}
+                loading={profilesLoading}
+                value={selectedFilterProfileId ?? undefined}
+                options={filterProfiles.map((profile) => ({
+                  value: profile.id,
+                  label: buildProfileOptionLabel(profile),
+                }))}
+                onChange={(value) => {
+                  setSelectedFilterProfileId(value);
+                  void loadSessions({ profileId: value });
+                }}
+                notFoundContent={profilesLoading ? <Spin size="small" /> : "Нет доступных профилей"}
+              />
+              {selectedFilterProfile ? (
+                <Typography.Text type="secondary">
+                  Показаны тесты по профилю: {selectedFilterProfile.name}, версия{" "}
+                  {selectedFilterProfile.version}
+                  {selectedFilterProfile.is_archived ? " (архивный)" : ""}.
+                </Typography.Text>
+              ) : null}
+            </Space>
+
             {sessionsError ? (
               <Alert style={{ marginBottom: 16 }} type="error" showIcon message={sessionsError} />
             ) : null}

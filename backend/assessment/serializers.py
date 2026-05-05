@@ -1,12 +1,25 @@
 from rest_framework import serializers
 
-from .models import CandidateSession, HRUser, TaskCard, TestConfig
+from .models import AssessmentProfile, CandidateSession, HRUser, TaskCard, TestConfig, get_default_assessment_profile
 
 CRITICALITY_LEVEL_LABELS = {
     TaskCard.CriticalityLevel.LOW: "Низкая",
     TaskCard.CriticalityLevel.MEDIUM: "Средняя",
     TaskCard.CriticalityLevel.HIGH: "Высокая",
 }
+
+PROFILE_PARAMETER_FIELDS = {
+    "low_criticality_weight",
+    "medium_criticality_weight",
+    "high_criticality_weight",
+    "low_criticality_max_time_ms",
+    "medium_criticality_max_time_ms",
+    "high_criticality_max_time_ms",
+    "sri_max_drag_count",
+    "min_time_ms",
+}
+
+PROFILE_MUTABLE_FIELDS_WHEN_USED = {"name", "description", "is_active"}
 
 
 def normalize_test_title(value):
@@ -91,6 +104,160 @@ class HRRegistrationSerializer(serializers.ModelSerializer):
         return HRUser.objects.create_user(**validated_data)
 
 
+class AdminHRUserListSerializer(serializers.ModelSerializer):
+    tests_count = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = HRUser
+        fields = ("id", "username", "date_joined", "is_active", "tests_count", "status")
+
+    def get_tests_count(self, obj):
+        return getattr(obj, "tests_count", obj.test_configs.count())
+
+    def get_status(self, obj):
+        return "active" if obj.is_active else "disabled"
+
+
+class AdminHRUserCreateSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, trim_whitespace=False, allow_blank=False)
+    confirm_password = serializers.CharField(write_only=True, trim_whitespace=False, allow_blank=False)
+
+    class Meta:
+        model = HRUser
+        fields = ("username", "password", "confirm_password")
+        extra_kwargs = {
+            "username": {"validators": []},
+        }
+
+    def validate_username(self, value):
+        username = value.strip()
+        if not username:
+            raise serializers.ValidationError("Логин обязателен.")
+
+        if HRUser.objects.filter(username=username).exists():
+            raise serializers.ValidationError("Такой логин уже занят.")
+
+        return username
+
+    def validate(self, attrs):
+        if attrs["password"] != attrs["confirm_password"]:
+            raise serializers.ValidationError("Пароли не совпадают.")
+
+        return attrs
+
+    def create(self, validated_data):
+        validated_data.pop("confirm_password")
+        return HRUser.objects.create_user(
+            username=validated_data["username"],
+            password=validated_data["password"],
+            is_active=True,
+            is_staff=False,
+            is_superuser=False,
+        )
+
+
+class AssessmentProfileSerializer(serializers.ModelSerializer):
+    tests_count = serializers.SerializerMethodField()
+    is_used = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AssessmentProfile
+        fields = (
+            "id",
+            "name",
+            "description",
+            "version",
+            "is_active",
+            "is_archived",
+            "created_at",
+            "updated_at",
+            "low_criticality_weight",
+            "medium_criticality_weight",
+            "high_criticality_weight",
+            "low_criticality_max_time_ms",
+            "medium_criticality_max_time_ms",
+            "high_criticality_max_time_ms",
+            "sri_max_drag_count",
+            "min_time_ms",
+            "tests_count",
+            "is_used",
+        )
+        read_only_fields = ("id", "is_archived", "created_at", "updated_at", "tests_count", "is_used")
+
+    def get_tests_count(self, obj):
+        return getattr(obj, "tests_count", obj.test_configs.count())
+
+    def get_is_used(self, obj):
+        return self.get_tests_count(obj) > 0
+
+    def validate_name(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Название профиля обязательно.")
+        return value.strip()
+
+    def validate_version(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Версия должна быть положительным числом.")
+        return value
+
+    def validate(self, attrs):
+        instance = self.instance
+        if instance and instance.is_base_profile and attrs.get("is_active") is False:
+            raise serializers.ValidationError("Базовый профиль должен оставаться активным.")
+
+        if instance and instance.test_configs.exists():
+            changed_fields = {field for field in attrs if getattr(instance, field) != attrs[field]}
+            locked_fields = changed_fields - PROFILE_MUTABLE_FIELDS_WHEN_USED
+            if locked_fields:
+                raise serializers.ValidationError(
+                    "Параметры использованного профиля менять нельзя. Создайте новый профиль или измените только название, описание и активность."
+                )
+
+        for field_name in (
+            "low_criticality_weight",
+            "medium_criticality_weight",
+            "high_criticality_weight",
+        ):
+            value = attrs.get(field_name, getattr(instance, field_name, None))
+            if value is not None and value <= 0:
+                raise serializers.ValidationError({field_name: "Вес должен быть положительным."})
+
+        for field_name in (
+            "low_criticality_max_time_ms",
+            "medium_criticality_max_time_ms",
+            "high_criticality_max_time_ms",
+            "sri_max_drag_count",
+            "min_time_ms",
+        ):
+            value = attrs.get(field_name, getattr(instance, field_name, None))
+            if value is not None and value <= 0:
+                raise serializers.ValidationError({field_name: "Значение должно быть положительным."})
+
+        return attrs
+
+
+class HRAssessmentProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AssessmentProfile
+        fields = (
+            "id",
+            "name",
+            "description",
+            "version",
+            "is_active",
+            "is_archived",
+            "low_criticality_weight",
+            "medium_criticality_weight",
+            "high_criticality_weight",
+            "low_criticality_max_time_ms",
+            "medium_criticality_max_time_ms",
+            "high_criticality_max_time_ms",
+            "sri_max_drag_count",
+            "min_time_ms",
+        )
+
+
 class TaskCardWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = TaskCard
@@ -110,15 +277,40 @@ class TaskCardPublicSerializer(serializers.ModelSerializer):
 
 class TestConfigListSerializer(serializers.ModelSerializer):
     cards = TaskCardWriteSerializer(many=True, read_only=True)
+    profile_id = serializers.IntegerField(source="assessment_profile_id", read_only=True)
+    profile_name = serializers.CharField(source="profile_name_snapshot", read_only=True)
+    profile_version = serializers.IntegerField(source="profile_version_snapshot", read_only=True)
+    profile_is_archived = serializers.SerializerMethodField()
 
     class Meta:
         model = TestConfig
-        fields = ("id", "title", "calc_dsi", "calc_sri", "calc_tcei", "cards")
+        fields = (
+            "id",
+            "title",
+            "calc_dsi",
+            "calc_sri",
+            "calc_tcei",
+            "profile_id",
+            "profile_name",
+            "profile_version",
+            "profile_is_archived",
+            "cards",
+        )
+
+    def get_profile_is_archived(self, obj):
+        profile = getattr(obj, "assessment_profile", None)
+        return bool(profile and profile.is_archived)
 
 
 class TestConfigCreateSerializer(serializers.ModelSerializer):
     cards = TaskCardWriteSerializer(many=True, required=False)
     session_token = serializers.UUIDField(read_only=True)
+    profile_id = serializers.PrimaryKeyRelatedField(
+        queryset=AssessmentProfile.objects.none(),
+        required=False,
+        write_only=True,
+        source="assessment_profile",
+    )
     source_test_id = serializers.PrimaryKeyRelatedField(
         queryset=TestConfig.objects.none(),
         required=False,
@@ -133,6 +325,7 @@ class TestConfigCreateSerializer(serializers.ModelSerializer):
             "calc_dsi",
             "calc_sri",
             "calc_tcei",
+            "profile_id",
             "cards",
             "session_token",
             "source_test_id",
@@ -152,6 +345,10 @@ class TestConfigCreateSerializer(serializers.ModelSerializer):
             self.fields["source_test_id"].queryset = TestConfig.objects.filter(hr=user).prefetch_related(
                 "cards"
             )
+        self.fields["profile_id"].queryset = AssessmentProfile.objects.filter(
+            is_active=True,
+            is_archived=False,
+        )
 
     def _build_copy_title(self, source_test):
         base_title = normalize_test_title(source_test.title) or "Копия теста"
@@ -238,11 +435,14 @@ class TestConfigCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         source_test = validated_data.pop("source_test_id", None)
+        profile = validated_data.pop("assessment_profile", None) or get_default_assessment_profile()
         cards_data = validated_data.pop("cards", None)
         if cards_data is None and source_test is not None:
             cards_data = self._build_source_cards_data(source_test)
 
-        test_config = TestConfig.objects.create(**validated_data)
+        test_config = TestConfig(**validated_data)
+        test_config.apply_assessment_profile_snapshot(profile)
+        test_config.save()
 
         TaskCard.objects.bulk_create(
             [TaskCard(test_config=test_config, **card_data) for card_data in cards_data]
@@ -257,12 +457,21 @@ class TestConfigCreateSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["session_token"] = getattr(instance, "session_token", None)
+        data["profile_id"] = instance.assessment_profile_id
+        data["profile_name"] = instance.profile_name_snapshot
+        data["profile_version"] = instance.profile_version_snapshot
+        profile = getattr(instance, "assessment_profile", None)
+        data["profile_is_archived"] = bool(profile and profile.is_archived)
         return data
 
 
 class CandidateSessionDashboardSerializer(serializers.ModelSerializer):
     test_id = serializers.IntegerField(source="test_config.id", read_only=True)
     test_title = serializers.CharField(source="test_config.title", read_only=True)
+    profile_id = serializers.IntegerField(source="test_config.assessment_profile_id", read_only=True)
+    profile_name = serializers.CharField(source="test_config.profile_name_snapshot", read_only=True)
+    profile_version = serializers.IntegerField(source="test_config.profile_version_snapshot", read_only=True)
+    profile_is_archived = serializers.SerializerMethodField()
     calc_dsi = serializers.BooleanField(source="test_config.calc_dsi", read_only=True)
     calc_sri = serializers.BooleanField(source="test_config.calc_sri", read_only=True)
     calc_tcei = serializers.BooleanField(source="test_config.calc_tcei", read_only=True)
@@ -273,6 +482,10 @@ class CandidateSessionDashboardSerializer(serializers.ModelSerializer):
             "id",
             "test_id",
             "test_title",
+            "profile_id",
+            "profile_name",
+            "profile_version",
+            "profile_is_archived",
             "token",
             "candidate_name",
             "is_completed",
@@ -283,6 +496,10 @@ class CandidateSessionDashboardSerializer(serializers.ModelSerializer):
             "final_sri",
             "final_tcei",
         )
+
+    def get_profile_is_archived(self, obj):
+        profile = getattr(obj.test_config, "assessment_profile", None)
+        return bool(profile and profile.is_archived)
 
 
 class CandidateSessionDetailSerializer(CandidateSessionDashboardSerializer):

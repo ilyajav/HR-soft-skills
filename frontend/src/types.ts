@@ -3,6 +3,59 @@ export type ThemeMode = "light" | "dark";
 export interface AuthResponse {
   token: string;
   username: string;
+  is_superuser: boolean;
+  role: "admin" | "hr";
+}
+
+export interface AdminHRUser {
+  id: number;
+  username: string;
+  date_joined: string;
+  is_active: boolean;
+  tests_count: number;
+  status: "active" | "disabled";
+}
+
+export interface CreateHRUserPayload {
+  username: string;
+  password: string;
+  confirm_password: string;
+}
+
+export interface AssessmentProfile {
+  id: number;
+  name: string;
+  description: string;
+  version: number;
+  is_active: boolean;
+  is_archived: boolean;
+  created_at?: string;
+  updated_at?: string;
+  low_criticality_weight: number;
+  medium_criticality_weight: number;
+  high_criticality_weight: number;
+  low_criticality_max_time_ms: number;
+  medium_criticality_max_time_ms: number;
+  high_criticality_max_time_ms: number;
+  sri_max_drag_count: number;
+  min_time_ms: number;
+  tests_count?: number;
+  is_used?: boolean;
+}
+
+export interface AssessmentProfilePayload {
+  name: string;
+  description: string;
+  version: number;
+  is_active: boolean;
+  low_criticality_weight: number;
+  medium_criticality_weight: number;
+  high_criticality_weight: number;
+  low_criticality_max_time_ms: number;
+  medium_criticality_max_time_ms: number;
+  high_criticality_max_time_ms: number;
+  sri_max_drag_count: number;
+  min_time_ms: number;
 }
 
 export interface AssessmentCard {
@@ -22,6 +75,10 @@ export interface TestTemplate {
   calc_dsi: boolean;
   calc_sri: boolean;
   calc_tcei: boolean;
+  profile_id: number | null;
+  profile_name: string;
+  profile_version: number;
+  profile_is_archived: boolean;
   cards: AssessmentCard[];
 }
 
@@ -39,6 +96,10 @@ export interface CreatedAssessmentResponse {
   calc_dsi: boolean;
   calc_sri: boolean;
   calc_tcei: boolean;
+  profile_id: number | null;
+  profile_name: string;
+  profile_version: number;
+  profile_is_archived: boolean;
   cards: AssessmentCard[];
   session_token: string;
 }
@@ -47,6 +108,10 @@ export interface CandidateSession {
   id: number;
   test_id: number;
   test_title: string;
+  profile_id: number | null;
+  profile_name: string;
+  profile_version: number;
+  profile_is_archived: boolean;
   token: string;
   candidate_name: string;
   is_completed: boolean;
