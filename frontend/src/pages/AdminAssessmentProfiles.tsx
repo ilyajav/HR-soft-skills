@@ -127,26 +127,36 @@ export default function AdminAssessmentProfiles() {
 
   const validateForm = (): string => {
     if (!form.name.trim()) {
-      return "Название профиля обязательно.";
+      return "Введите название профиля";
     }
 
     if (form.version <= 0) {
-      return "Версия должна быть положительной.";
+      return "Версия должна быть положительным числом.";
     }
 
-    const numericValues = [
+    const weightValues = [
       form.low_criticality_weight,
       form.medium_criticality_weight,
       form.high_criticality_weight,
+    ];
+
+    if (weightValues.some((value) => value <= 0)) {
+      return "Вес должен быть положительным числом";
+    }
+
+    const timeValues = [
       form.low_criticality_max_time_ms,
       form.medium_criticality_max_time_ms,
       form.high_criticality_max_time_ms,
-      form.sri_max_drag_count,
       form.min_time_ms,
     ];
 
-    if (numericValues.some((value) => value <= 0)) {
-      return "Все веса, времена и счетчики должны быть положительными.";
+    if (timeValues.some((value) => value <= 0)) {
+      return "Время должно быть положительным числом";
+    }
+
+    if (form.sri_max_drag_count <= 0 || !Number.isInteger(form.sri_max_drag_count)) {
+      return "Количество перемещений должно быть положительным целым числом";
     }
 
     return "";
@@ -394,7 +404,9 @@ export default function AdminAssessmentProfiles() {
                 />
               </Form.Item>
 
-              <Form.Item label="Активен">
+              <Form.Item
+                extra="Если отключить параметр, профиль нельзя будет выбрать при создании нового теста. Старые тесты и результаты, созданные с этим профилем, сохранятся."
+              >
                 <Checkbox
                   checked={form.is_active}
                   disabled={editingProfile?.is_archived || isEditingBaseProfile}
@@ -406,7 +418,7 @@ export default function AdminAssessmentProfiles() {
             </div>
 
             <div className="dashboard-form-grid">
-              <Form.Item label="Вес низкой критичности" required>
+              <Form.Item label="Вес карточки низкой критичности" required>
                 <InputNumber
                   min={0.01}
                   step={0.1}
@@ -416,7 +428,7 @@ export default function AdminAssessmentProfiles() {
                   onChange={(value) => updateFormValue("low_criticality_weight", value ?? 0)}
                 />
               </Form.Item>
-              <Form.Item label="Вес средней критичности" required>
+              <Form.Item label="Вес карточки средней критичности" required>
                 <InputNumber
                   min={0.01}
                   step={0.1}
@@ -426,7 +438,7 @@ export default function AdminAssessmentProfiles() {
                   onChange={(value) => updateFormValue("medium_criticality_weight", value ?? 0)}
                 />
               </Form.Item>
-              <Form.Item label="Вес высокой критичности" required>
+              <Form.Item label="Вес карточки высокой критичности" required>
                 <InputNumber
                   min={0.01}
                   step={0.1}
@@ -437,9 +449,12 @@ export default function AdminAssessmentProfiles() {
                 />
               </Form.Item>
             </div>
+            <Typography.Paragraph type="secondary" style={{ marginTop: -12, marginBottom: 24 }}>
+              Вес определяет вклад карточки соответствующей критичности в итоговый индекс.
+            </Typography.Paragraph>
 
             <div className="dashboard-form-grid">
-              <Form.Item label="Max время низкой критичности, мс" required>
+              <Form.Item label="Максимальное время для низкой критичности, мс" required>
                 <InputNumber
                   min={1}
                   precision={0}
@@ -449,7 +464,7 @@ export default function AdminAssessmentProfiles() {
                   onChange={(value) => updateFormValue("low_criticality_max_time_ms", value ?? 0)}
                 />
               </Form.Item>
-              <Form.Item label="Max время средней критичности, мс" required>
+              <Form.Item label="Максимальное время для средней критичности, мс" required>
                 <InputNumber
                   min={1}
                   precision={0}
@@ -459,7 +474,7 @@ export default function AdminAssessmentProfiles() {
                   onChange={(value) => updateFormValue("medium_criticality_max_time_ms", value ?? 0)}
                 />
               </Form.Item>
-              <Form.Item label="Max время высокой критичности, мс" required>
+              <Form.Item label="Максимальное время для высокой критичности, мс" required>
                 <InputNumber
                   min={1}
                   precision={0}
@@ -470,9 +485,17 @@ export default function AdminAssessmentProfiles() {
                 />
               </Form.Item>
             </div>
+            <Typography.Paragraph type="secondary" style={{ marginTop: -12, marginBottom: 24 }}>
+              Максимальное время используется как верхняя граница нормализации DSI. При превышении этого
+              значения вклад карточки в индекс скорости становится минимальным.
+            </Typography.Paragraph>
 
             <div className="dashboard-form-grid">
-              <Form.Item label="Максимум перемещений SRI" required>
+              <Form.Item
+                label="Максимальное количество перемещений для SRI"
+                required
+                extra="Параметр задаёт порог, после которого повторные перемещения карточки интерпретируются как выраженная нестабильность решения."
+              >
                 <InputNumber
                   min={1}
                   precision={0}
@@ -482,7 +505,11 @@ export default function AdminAssessmentProfiles() {
                   onChange={(value) => updateFormValue("sri_max_drag_count", value ?? 0)}
                 />
               </Form.Item>
-              <Form.Item label="Минимальное время DSI, мс" required>
+              <Form.Item
+                label="Нижняя граница времени для DSI, мс"
+                required
+                extra="Если время взаимодействия с карточкой меньше или равно этому значению, скорость выполнения считается максимальной."
+              >
                 <InputNumber
                   min={1}
                   precision={0}

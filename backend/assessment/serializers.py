@@ -193,7 +193,7 @@ class AssessmentProfileSerializer(serializers.ModelSerializer):
 
     def validate_name(self, value):
         if not value.strip():
-            raise serializers.ValidationError("Название профиля обязательно.")
+            raise serializers.ValidationError("Введите название профиля")
         return value.strip()
 
     def validate_version(self, value):
@@ -221,18 +221,23 @@ class AssessmentProfileSerializer(serializers.ModelSerializer):
         ):
             value = attrs.get(field_name, getattr(instance, field_name, None))
             if value is not None and value <= 0:
-                raise serializers.ValidationError({field_name: "Вес должен быть положительным."})
+                raise serializers.ValidationError({field_name: "Вес должен быть положительным числом"})
 
         for field_name in (
             "low_criticality_max_time_ms",
             "medium_criticality_max_time_ms",
             "high_criticality_max_time_ms",
-            "sri_max_drag_count",
             "min_time_ms",
         ):
             value = attrs.get(field_name, getattr(instance, field_name, None))
             if value is not None and value <= 0:
-                raise serializers.ValidationError({field_name: "Значение должно быть положительным."})
+                raise serializers.ValidationError({field_name: "Время должно быть положительным числом"})
+
+        value = attrs.get("sri_max_drag_count", getattr(instance, "sri_max_drag_count", None))
+        if value is not None and value <= 0:
+            raise serializers.ValidationError(
+                {"sri_max_drag_count": "Количество перемещений должно быть положительным целым числом"}
+            )
 
         return attrs
 
