@@ -1,5 +1,5 @@
 from django.core.exceptions import FieldDoesNotExist
-from django.urls import reverse
+from django.urls import Resolver404, resolve, reverse
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
@@ -80,6 +80,42 @@ class AdminHRUserManagementTests(APITestCase):
         response = self.client.get(reverse("admin-hr-users"))
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_public_register_endpoint_is_not_available(self):
+        with self.assertRaises(Resolver404):
+            resolve("/api/auth/register/")
+
+        self.assertFalse(HRUser.objects.filter(username="public-hr").exists())
+
+    def test_unauthenticated_user_cannot_create_hr_user(self):
+        response = self.client.post(
+            reverse("admin-hr-users"),
+            {
+                "username": "anonymous-created-hr",
+                "password": "newpass123",
+                "confirm_password": "newpass123",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertFalse(HRUser.objects.filter(username="anonymous-created-hr").exists())
+
+    def test_regular_hr_cannot_create_another_hr_user(self):
+        self.client.force_authenticate(user=self.hr)
+
+        response = self.client.post(
+            reverse("admin-hr-users"),
+            {
+                "username": "hr-created-hr",
+                "password": "newpass123",
+                "confirm_password": "newpass123",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(HRUser.objects.filter(username="hr-created-hr").exists())
 
     def test_admin_can_list_only_hr_users_with_test_count(self):
         self.authenticate_admin()

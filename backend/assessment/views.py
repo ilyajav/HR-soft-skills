@@ -15,7 +15,6 @@ from .serializers import (
     CandidateSessionDetailSerializer,
     CandidateSessionDashboardSerializer,
     HRAssessmentProfileSerializer,
-    HRRegistrationSerializer,
     PublicPlaySerializer,
     SubmitTelemetrySerializer,
     TestConfigCreateSerializer,
@@ -59,20 +58,6 @@ class HRLoginView(APIView):
 
         token, _ = Token.objects.get_or_create(user=user)
         return Response(build_auth_response(user, token))
-
-
-class HRRegisterView(APIView):
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-        serializer = HRRegistrationSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        token, _ = Token.objects.get_or_create(user=user)
-        return Response(
-            build_auth_response(user, token),
-            status=status.HTTP_201_CREATED,
-        )
 
 
 class AdminHRUserListCreateView(generics.ListCreateAPIView):

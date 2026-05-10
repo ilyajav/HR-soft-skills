@@ -7,7 +7,6 @@ from .views import (
     AdminHRUserListCreateView,
     HRAssessmentProfileListView,
     HRLoginView,
-    HRRegisterView,
     HRSessionDetailView,
     HRSessionListView,
     HRStatisticsView,
@@ -20,7 +19,6 @@ from .views import (
 
 urlpatterns = [
     path("auth/login/", HRLoginView.as_view(), name="hr-login"),
-    path("auth/register/", HRRegisterView.as_view(), name="hr-register"),
     path("admin/hr-users/", AdminHRUserListCreateView.as_view(), name="admin-hr-users"),
     path("admin/hr-users/<int:pk>/", AdminHRUserDeactivateView.as_view(), name="admin-hr-user-detail"),
     path(

@@ -78,32 +78,6 @@ def build_criticality_results(session):
     }
 
 
-class HRRegistrationSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=8)
-    confirm_password = serializers.CharField(write_only=True, min_length=8)
-
-    class Meta:
-        model = HRUser
-        fields = ("username", "password", "confirm_password")
-
-    def validate(self, attrs):
-        if attrs["password"] != attrs["confirm_password"]:
-            raise serializers.ValidationError(
-                "\u041f\u0430\u0440\u043e\u043b\u0438 \u043d\u0435 \u0441\u043e\u0432\u043f\u0430\u0434\u0430\u044e\u0442."
-            )
-
-        if HRUser.objects.filter(username=attrs["username"]).exists():
-            raise serializers.ValidationError(
-                "\u0422\u0430\u043a\u043e\u0439 \u043b\u043e\u0433\u0438\u043d \u0443\u0436\u0435 \u0437\u0430\u043d\u044f\u0442."
-            )
-
-        return attrs
-
-    def create(self, validated_data):
-        validated_data.pop("confirm_password")
-        return HRUser.objects.create_user(**validated_data)
-
-
 class AdminHRUserListSerializer(serializers.ModelSerializer):
     tests_count = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
