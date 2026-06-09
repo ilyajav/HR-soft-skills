@@ -79,6 +79,10 @@ body {
   width: min(1520px, calc(100% - 32px));
 }
 
+.page-section--extra-wide {
+  width: min(2080px, calc(100% - 24px));
+}
+
 .page-section--narrow {
   width: min(480px, calc(100% - 32px));
   min-height: 100vh;
@@ -117,6 +121,59 @@ body {
   grid-template-columns: minmax(0, 1fr) 220px;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.dashboard-table-card .ant-card-body {
+  padding-inline: 12px;
+}
+
+.dashboard-sessions-table .ant-table {
+  width: 100%;
+}
+
+.dashboard-sessions-table .ant-table table {
+  width: 100% !important;
+}
+
+.dashboard-sessions-table .ant-table-thead > tr > th,
+.dashboard-sessions-table .ant-table-tbody > tr > td {
+  padding-inline: 8px;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
+  vertical-align: top;
+}
+
+.dashboard-sessions-table .ant-tag {
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.dashboard-sessions-table .ant-typography,
+.dashboard-sessions-table .ant-btn-link {
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+.dashboard-metric-column-title {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.dashboard-metric-column-title__code {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1768ac;
 }
 
 .theme-toggle-shell {

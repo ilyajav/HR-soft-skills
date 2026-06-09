@@ -38,6 +38,14 @@ const METRIC_LABELS = {
 } as const;
 
 type MetricSelectionKey = "calc_dsi" | "calc_sri" | "calc_tcei";
+type MetricCode = keyof typeof METRIC_LABELS;
+
+const renderMetricColumnTitle = (metric: MetricCode) => (
+  <span className="dashboard-metric-column-title">
+    <span>{METRIC_LABELS[metric]}</span>
+    <span className="dashboard-metric-column-title__code">{metric}</span>
+  </span>
+);
 
 const DUPLICATE_TITLE_ERROR = "Тест с таким названием уже существует.";
 const BASE_PROFILE_NAME = "Базовый профиль";
@@ -414,13 +422,12 @@ export default function Dashboard() {
       title: "Тест",
       dataIndex: "test_title",
       key: "test_title",
-      width: 170,
-      ellipsis: true,
+      width: "9%",
     },
     {
       title: "Профиль",
       key: "profile",
-      width: 180,
+      width: "11%",
       render: (_: unknown, session: CandidateSession) => (
         <Space size={[4, 8]} wrap>
           <Tag color={session.profile_is_archived ? "default" : "blue"}>
@@ -434,14 +441,13 @@ export default function Dashboard() {
       title: "Сотрудник",
       dataIndex: "candidate_name",
       key: "candidate_name",
-      width: 140,
-      ellipsis: true,
+      width: "8%",
       render: (value: CandidateSession["candidate_name"]) => value || "Аноним",
     },
     {
       title: "Метрики",
       key: "metrics",
-      width: 200,
+      width: "13%",
       render: (_: unknown, session: CandidateSession) => (
         <Space size={[4, 8]} wrap>
           {session.calc_dsi ? <Tag color="blue">{METRIC_LABELS.DSI}</Tag> : null}
@@ -454,38 +460,41 @@ export default function Dashboard() {
       title: "Статус",
       dataIndex: "is_completed",
       key: "is_completed",
-      width: 110,
+      width: "7%",
       render: (value: CandidateSession["is_completed"]) =>
         value ? <Tag color="success">Завершен</Tag> : <Tag color="processing">Открыт</Tag>,
     },
     {
-      title: METRIC_LABELS.DSI,
+      title: renderMetricColumnTitle("DSI"),
       dataIndex: "final_dsi",
       key: "final_dsi",
-      width: 80,
+      width: "9%",
+      align: "center",
       render: (value: CandidateSession["final_dsi"]) =>
         typeof value === "number" ? `${value.toFixed(2)}%` : "-",
     },
     {
-      title: METRIC_LABELS.SRI,
+      title: renderMetricColumnTitle("SRI"),
       dataIndex: "final_sri",
       key: "final_sri",
-      width: 80,
+      width: "9%",
+      align: "center",
       render: (value: CandidateSession["final_sri"]) =>
         typeof value === "number" ? `${value.toFixed(2)}%` : "-",
     },
     {
-      title: METRIC_LABELS.TCEI,
+      title: renderMetricColumnTitle("TCEI"),
       dataIndex: "final_tcei",
       key: "final_tcei",
-      width: 80,
+      width: "9%",
+      align: "center",
       render: (value: CandidateSession["final_tcei"]) =>
         typeof value === "number" ? `${value.toFixed(2)}%` : "-",
     },
     {
       title: "Ссылка",
       key: "public_link",
-      width: 160,
+      width: "9%",
       render: (_: unknown, session: CandidateSession) => (
         <Typography.Link href={`${window.location.origin}/play/${session.token}`} target="_blank">
           Открыть страницу тестирования
@@ -495,7 +504,7 @@ export default function Dashboard() {
     {
       title: "Результат",
       key: "results",
-      width: 130,
+      width: "9%",
       render: (_: unknown, session: CandidateSession) =>
         session.is_completed ? (
           <Button
@@ -512,7 +521,7 @@ export default function Dashboard() {
     {
       title: "Действия",
       key: "actions",
-      width: 110,
+      width: "7%",
       render: (_: unknown, session: CandidateSession) =>
         session.test_id ? (
           <Popconfirm
@@ -547,7 +556,7 @@ export default function Dashboard() {
 
   return (
     <Layout className="app-shell">
-      <div className="page-section page-section--wide">
+      <div className="page-section page-section--extra-wide">
         <Space direction="vertical" size={24} className="dashboard-stack" style={{ width: "100%" }}>
           <Card bordered={false}>
             <Space
@@ -758,7 +767,7 @@ export default function Dashboard() {
             ) : null}
           </Card>
 
-          <Card bordered={false} title="Список тестов и сессий">
+          <Card bordered={false} title="Список тестов и сессий" className="dashboard-table-card">
             <Space direction="vertical" size={8} style={{ width: "100%", marginBottom: 16 }}>
               <Typography.Text strong>Показать тесты по профилю</Typography.Text>
               <Select
@@ -794,11 +803,12 @@ export default function Dashboard() {
               </div>
             ) : (
               <Table
+                className="dashboard-sessions-table"
                 rowKey="id"
                 dataSource={sessions}
                 columns={tableColumns}
                 pagination={{ pageSize: 8 }}
-                scroll={{ x: "max-content" }}
+                tableLayout="fixed"
               />
             )}
           </Card>

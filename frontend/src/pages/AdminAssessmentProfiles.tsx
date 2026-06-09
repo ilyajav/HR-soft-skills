@@ -73,7 +73,7 @@ const formatDateTime = (value?: string): string => {
 const formatProfileParams = (profile: AssessmentProfile): string =>
   `веса ${profile.low_criticality_weight}/${profile.medium_criticality_weight}/${profile.high_criticality_weight}; ` +
   `время ${profile.low_criticality_max_time_ms}/${profile.medium_criticality_max_time_ms}/${profile.high_criticality_max_time_ms} мс; ` +
-  `SRI ${profile.sri_max_drag_count}; min ${profile.min_time_ms} мс`;
+  `SRI ${profile.sri_max_drag_count}; DSI мин ${profile.min_time_ms} мс`;
 
 export default function AdminAssessmentProfiles() {
   const navigate = useNavigate();
@@ -230,20 +230,20 @@ export default function AdminAssessmentProfiles() {
       title: "ID",
       dataIndex: "id",
       key: "id",
-      width: 70,
+      width: 64,
     },
     {
       title: "Название",
       dataIndex: "name",
       key: "name",
-      width: 220,
+      width: 190,
       ellipsis: true,
     },
     {
       title: "Описание",
       dataIndex: "description",
       key: "description",
-      width: 260,
+      width: 220,
       ellipsis: true,
       render: (value: AssessmentProfile["description"]) => value || "-",
     },
@@ -251,12 +251,12 @@ export default function AdminAssessmentProfiles() {
       title: "Версия",
       dataIndex: "version",
       key: "version",
-      width: 90,
+      width: 80,
     },
     {
       title: "Статус",
       key: "status",
-      width: 150,
+      width: 130,
       render: (_: unknown, profile) =>
         profile.is_archived ? (
           <Tag>Архивный</Tag>
@@ -269,7 +269,7 @@ export default function AdminAssessmentProfiles() {
     {
       title: "Параметры",
       key: "params",
-      width: 360,
+      width: 320,
       render: (_: unknown, profile) => (
         <Typography.Text style={{ whiteSpace: "normal" }}>
           {formatProfileParams(profile)}
@@ -280,13 +280,13 @@ export default function AdminAssessmentProfiles() {
       title: "Обновлён",
       dataIndex: "updated_at",
       key: "updated_at",
-      width: 180,
+      width: 160,
       render: (value: AssessmentProfile["updated_at"]) => formatDateTime(value),
     },
     {
       title: "Действия",
       key: "actions",
-      width: 210,
+      width: 180,
       render: (_: unknown, profile) => (
         <Space wrap>
           <Button type="link" onClick={() => openEditModal(profile)} style={{ paddingInline: 0 }}>
@@ -317,7 +317,7 @@ export default function AdminAssessmentProfiles() {
 
   return (
     <Layout className="app-shell">
-      <div className="page-section">
+      <div className="page-section page-section--wide">
         <Space direction="vertical" size={24} className="dashboard-stack" style={{ width: "100%" }}>
           <Card bordered={false}>
             <Space
@@ -360,7 +360,6 @@ export default function AdminAssessmentProfiles() {
                 dataSource={profiles}
                 columns={columns}
                 pagination={{ pageSize: 8 }}
-                scroll={{ x: "max-content" }}
               />
             )}
           </Card>

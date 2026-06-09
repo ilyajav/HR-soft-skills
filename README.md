@@ -62,7 +62,7 @@ POSTGRES_PORT=5432
 python manage.py migrate
 ```
 
-6. Создайте первого администратора:
+6. Создайте администратора:
 
 ```bash
 python manage.py createsuperuser
