@@ -405,11 +405,6 @@ class PublicSubmitView(APIView):
         )
 
     def _calculate_scores(self, logs, card_map, profile_params, calc_dsi, calc_sri, calc_tcei):
-        """
-        Backend-only thesis algorithm.
-        The UI submits raw telemetry, and the API converts it into weighted scores.
-        """
-
         weighted_dsi_sum = 0.0
         weighted_sri_sum = 0.0
         weight_sum = 0.0

@@ -49,12 +49,6 @@ class HRUserManager(UserManager):
 
 
 class HRUser(AbstractUser):
-    """
-    Custom HR user model.
-    A custom auth model is added at project start so the thesis project can grow
-    later without a painful user-model migration.
-    """
-
     email = None
     USERNAME_FIELD = "username"
     REQUIRED_FIELDS = []

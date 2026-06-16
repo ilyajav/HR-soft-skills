@@ -244,11 +244,6 @@ class TaskCardWriteSerializer(serializers.ModelSerializer):
 
 
 class TaskCardPublicSerializer(serializers.ModelSerializer):
-    """
-    The public play endpoint hides criticality_level intentionally.
-    This keeps the weighting rules server-side and avoids candidate cheating.
-    """
-
     class Meta:
         model = TaskCard
         fields = ("id", "text")
@@ -427,8 +422,6 @@ class TestConfigCreateSerializer(serializers.ModelSerializer):
             [TaskCard(test_config=test_config, **card_data) for card_data in cards_data]
         )
 
-        # The brief does not include a dedicated endpoint for creating sessions.
-        # For the MVP, one candidate session is created automatically per test config.
         session = CandidateSession.objects.create(test_config=test_config)
         test_config.session_token = session.token
         return test_config

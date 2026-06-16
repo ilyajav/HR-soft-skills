@@ -82,7 +82,6 @@ if postgres_db:
         }
     }
 else:
-    # Local development fallback so the MVP can run without a separate PostgreSQL setup.
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
