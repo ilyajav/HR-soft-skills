@@ -13,8 +13,6 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-*.sqlite3
-*.sqlite3-journal
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -26,7 +24,6 @@ venv/
 env/
 ENV/
 *.egg-info/
-backend/db.sqlite3
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
